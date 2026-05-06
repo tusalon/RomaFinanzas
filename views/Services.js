@@ -1,4 +1,7 @@
 function Services({ onBack }) {
+    const { state } = useFinanceApp();
+    const activeServices = state.services.filter((service) => service.active);
+
     return (
         <div className="p-4" data-name="services" data-file="views/Services.js">
             <button className="btn-secondary mb-6 border-dashed border-2 text-[var(--primary)] border-[var(--primary-light)] bg-pink-50/50">
@@ -6,10 +9,10 @@ function Services({ onBack }) {
                 Crear Nuevo Servicio
             </button>
 
-            <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 px-1">Catálogo Actual</h3>
-            
+            <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 px-1">Catalogo Actual</h3>
+
             <div className="space-y-3">
-                {INITIAL_DATA.services.map(srv => (
+                {activeServices.map((srv) => (
                     <div key={srv.id} className="card p-4 flex items-center justify-between">
                         <div>
                             <h4 className="font-bold text-gray-900">{srv.name}</h4>
@@ -19,8 +22,7 @@ function Services({ onBack }) {
                             </p>
                         </div>
                         <div className="text-right">
-                            <span className="font-bold text-lg">{srv.price}</span>
-                            <span className="text-xs text-gray-500 ml-1">{srv.currency}</span>
+                            <span className="font-bold text-lg">{formatMoney(srv.price, srv.currency)}</span>
                         </div>
                     </div>
                 ))}

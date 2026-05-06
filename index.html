@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#ec4899">
     <meta name="description" content="Roma Finanzas - Herramienta de gestión financiera para salones de belleza del ecosistema RservasRoma.">
     <title>Roma Finanzas</title>
@@ -12,7 +12,6 @@
     <script src="https://resource.trickle.so/vendor_lib/unpkg/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://resource.trickle.so/vendor_lib/unpkg/lucide-static@0.516.0/font/lucide.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
 
     <style type="text/tailwindcss">
     @layer theme {
@@ -56,7 +55,9 @@
     <div id="root"></div>
     
     <!-- State Management & Mock Data -->
+    <script type="text/babel" src="utils/finance.js"></script>
     <script type="text/babel" src="utils/mockData.js"></script>
+    <script type="text/babel" src="utils/store.js"></script>
     
     <!-- Components -->
     <script type="text/babel" src="components/BottomNav.js"></script>
