@@ -68,7 +68,7 @@ function App() {
 
   try {
     return (
-      <div className="w-full max-w-md mx-auto min-h-screen bg-[var(--bg-color)] relative shadow-2xl overflow-x-hidden" data-name="app" data-file="app.js">
+      <div className="mobile-shell w-full max-w-md mx-auto min-h-screen bg-[var(--bg-color)] relative shadow-2xl overflow-x-hidden" data-name="app" data-file="app.js">
         {isAuthenticated && currentView !== 'login' && <TopBar view={currentView} onBack={() => navigate('menu')} />}
         
         <main className={`w-full ${isAuthenticated && currentView !== 'login' ? 'pt-16 pb-24' : ''}`}>

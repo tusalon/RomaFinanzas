@@ -29,6 +29,7 @@
         body {
             @apply bg-[var(--bg-color)] text-[var(--text-main)] font-sans antialiased pb-20;
             -webkit-tap-highlight-color: transparent;
+            overflow-x: hidden;
         }
     }
 
@@ -48,7 +49,48 @@
         .label {
             @apply block text-sm font-medium text-gray-700 mb-1.5;
         }
+        .pb-safe {
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        .mobile-shell {
+            min-height: 100dvh;
+        }
     }
+    </style>
+    <style>
+        @media (max-width: 480px) {
+            .mobile-shell {
+                max-width: none;
+                box-shadow: none;
+            }
+        }
+
+        @media (max-width: 380px) {
+            .mobile-stack {
+                grid-template-columns: 1fr !important;
+            }
+
+            .mobile-stack .icon-button {
+                width: 100%;
+            }
+
+            .mobile-rate-row,
+            .mobile-result-row {
+                align-items: stretch !important;
+                flex-direction: column;
+                gap: 0.75rem;
+            }
+
+            .mobile-rate-input {
+                width: 100% !important;
+            }
+
+            .mobile-total-row {
+                align-items: flex-start !important;
+                flex-direction: column;
+                gap: 1rem;
+            }
+        }
     </style>
 </head>
 <body>

@@ -47,12 +47,12 @@ function Config({ onBack }) {
             <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 px-1">Tasas de cambio actuales</h3>
             <div className="card p-0 overflow-hidden mb-8">
                 {['USD', 'MLC', 'EUR'].map((currency, index) => (
-                    <div key={currency} className={`p-4 flex items-center justify-between ${index < 2 ? 'border-b border-gray-100' : ''} ${index === 1 ? 'bg-gray-50/50' : ''}`}>
+                    <div key={currency} className={`mobile-rate-row p-4 flex items-center justify-between ${index < 2 ? 'border-b border-gray-100' : ''} ${index === 1 ? 'bg-gray-50/50' : ''}`}>
                         <div className="flex items-center gap-2">
                             <span className="font-bold text-gray-700 w-12">1 {currency}</span>
                             <div className="icon-arrow-right text-gray-400 text-sm"></div>
                         </div>
-                        <div className="flex items-center gap-2 w-32">
+                        <div className="mobile-rate-input flex items-center gap-2 w-32">
                             <input
                                 type="number"
                                 value={form.rates[currency]}

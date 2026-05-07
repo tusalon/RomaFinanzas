@@ -115,7 +115,7 @@ function CostSheet({ onBack }) {
 
                                     return (
                                         <div key={`${usage.materialId}_${index}`} className="p-3 border-b border-gray-100 last:border-b-0 bg-gray-50 space-y-3">
-                                            <div className="grid grid-cols-[1fr_90px_36px] gap-2 items-center">
+                                            <div className="mobile-stack grid grid-cols-[1fr_90px_36px] gap-2 items-center">
                                                 <select
                                                     className="input-field !py-2 !px-3 bg-white"
                                                     value={usage.materialId}
@@ -133,7 +133,7 @@ function CostSheet({ onBack }) {
                                                     value={usage.quantity}
                                                     onChange={(event) => updateMaterial(index, 'quantity', event.target.value)}
                                                 />
-                                                <button type="button" onClick={() => removeMaterial(index)} className="h-10 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-400">
+                                                <button type="button" onClick={() => removeMaterial(index)} className="icon-button h-10 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-400">
                                                     <div className="icon-x text-sm"></div>
                                                 </button>
                                             </div>
@@ -157,7 +157,7 @@ function CostSheet({ onBack }) {
 
                             <div className="space-y-3">
                                 {extraExpenses.map((expense, index) => (
-                                    <div key={expense.id} className="card p-3 grid grid-cols-[1fr_96px_82px] gap-2 items-center">
+                                    <div key={expense.id} className="mobile-stack card p-3 grid grid-cols-[1fr_96px_82px] gap-2 items-center">
                                         <input
                                             type="text"
                                             className="input-field !py-2 !px-3"
@@ -203,7 +203,7 @@ function CostSheet({ onBack }) {
                                 </div>
                             </div>
 
-                            <div className="border-t border-gray-700 pt-4 flex justify-between items-end">
+                            <div className="mobile-total-row border-t border-gray-700 pt-4 flex justify-between items-end">
                                 <div>
                                     <p className="text-xs text-gray-400 mb-1">Te queda limpio</p>
                                     <p className={`text-2xl font-bold ${result.profitMain >= 0 ? 'text-green-400' : 'text-red-400'}`}>
