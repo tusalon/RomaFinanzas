@@ -1,5 +1,5 @@
 function Login({ onLogin, checkingSession }) {
-    const [email, setEmail] = React.useState('');
+    const [username, setUsername] = React.useState('');
     const [password, setPassword] = React.useState('');
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState('');
@@ -9,14 +9,14 @@ function Login({ onLogin, checkingSession }) {
         if (loading) return;
 
         setError('');
-        if (!email.trim() || !password) {
-            setError('Escribe tu correo y contrasena.');
+        if (!username.trim() || !password) {
+            setError('Escribe tu usuario y contrasena.');
             return;
         }
 
         setLoading(true);
         try {
-            const result = await loginRomaFinanzas(email, password);
+            const result = await loginRomaFinanzas(username, password);
             onLogin(result);
         } catch (loginError) {
             setError(loginError.message || 'No se pudo entrar.');
@@ -39,14 +39,15 @@ function Login({ onLogin, checkingSession }) {
 
                 <form onSubmit={handleSubmit} className="space-y-4 w-full">
                     <div>
-                        <label className="label">Correo del negocio</label>
+                        <label className="label">Usuario del negocio</label>
                         <input
-                            type="email"
+                            type="text"
                             className="input-field bg-white"
-                            value={email}
-                            onChange={(event) => setEmail(event.target.value)}
-                            placeholder="tunegocio@gmail.com"
-                            autoComplete="email"
+                            value={username}
+                            onChange={(event) => setUsername(event.target.value)}
+                            placeholder="usuario"
+                            autoComplete="username"
+                            autoCapitalize="none"
                         />
                     </div>
 
