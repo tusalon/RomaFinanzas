@@ -37,8 +37,38 @@ class ErrorBoundary extends React.Component {
 }
 
 function App() {
+  const { actions } = useFinanceApp();
   const [currentView, setCurrentView] = React.useState('login');
   const [isAuthenticated, setIsAuthenticated] = React.useState(false);
+  const [checkingSession, setCheckingSession] = React.useState(true);
+  const [authUser, setAuthUser] = React.useState(null);
+
+  React.useEffect(() => {
+    let mounted = true;
+
+    const checkSession = async () => {
+      try {
+        const result = await getRomaAuthSession();
+        if (!mounted) return;
+
+        if (result.session && result.business) {
+          actions.setBusiness(result.business);
+          setAuthUser(result.user);
+          setIsAuthenticated(true);
+          setCurrentView('dashboard');
+        }
+      } catch (error) {
+        console.warn('No se pudo verificar la sesion:', error);
+      } finally {
+        if (mounted) setCheckingSession(false);
+      }
+    };
+
+    checkSession();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Simple router logic
   const navigate = (view) => {
@@ -46,14 +76,25 @@ function App() {
     window.scrollTo(0, 0);
   };
 
-  const handleLogin = () => {
+  const handleLogin = (authResult) => {
+    if (authResult?.business) {
+      actions.setBusiness(authResult.business);
+    }
+    setAuthUser(authResult?.user || null);
     setIsAuthenticated(true);
     navigate('dashboard');
   };
 
+  const handleLogout = async () => {
+    await logoutRomaFinanzas();
+    setAuthUser(null);
+    setIsAuthenticated(false);
+    navigate('login');
+  };
+
   const renderView = () => {
     switch (currentView) {
-      case 'login': return <Login onLogin={handleLogin} />;
+      case 'login': return <Login onLogin={handleLogin} checkingSession={checkingSession} />;
       case 'dashboard': return <Dashboard />;
       case 'income': return <Income />;
       case 'expenses': return <Expenses />;
@@ -69,7 +110,7 @@ function App() {
   try {
     return (
       <div className="mobile-shell w-full max-w-md mx-auto min-h-screen bg-[var(--bg-color)] relative shadow-2xl overflow-x-hidden" data-name="app" data-file="app.js">
-        {isAuthenticated && currentView !== 'login' && <TopBar view={currentView} onBack={() => navigate('menu')} />}
+        {isAuthenticated && currentView !== 'login' && <TopBar view={currentView} onBack={() => navigate('menu')} onLogout={handleLogout} authUser={authUser} />}
         
         <main className={`w-full ${isAuthenticated && currentView !== 'login' ? 'pt-16 pb-24' : ''}`}>
             {renderView()}

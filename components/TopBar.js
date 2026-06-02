@@ -1,4 +1,4 @@
-function TopBar({ view, onBack }) {
+function TopBar({ view, onBack, onLogout, authUser }) {
     const titles = {
         dashboard: 'Resumen Diario',
         income: 'Registrar Ingreso',
@@ -28,9 +28,14 @@ function TopBar({ view, onBack }) {
                 <h1 className="text-lg font-semibold text-[var(--text-main)]">{titles[view] || 'Roma Finanzas'}</h1>
             </div>
             
-            <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden border border-gray-200">
-                <div className="icon-user text-gray-500"></div>
-            </div>
+            <button
+                type="button"
+                onClick={onLogout}
+                title={authUser?.email ? `Salir de ${authUser.email}` : 'Salir'}
+                className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center overflow-hidden border border-gray-200 active:scale-95 transition-transform"
+            >
+                <div className="icon-log-out text-gray-500"></div>
+            </button>
         </header>
     );
 }

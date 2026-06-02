@@ -89,6 +89,22 @@ function FinanceProvider({ children }) {
                 }
             }));
         },
+        setBusiness(business) {
+            if (!business) return;
+
+            setState((current) => ({
+                ...current,
+                business: {
+                    ...current.business,
+                    id: business.id,
+                    name: business.nombre || current.business.name,
+                    email: business.email || current.business.email,
+                    logoUrl: business.logo_url || current.business.logoUrl,
+                    accessStatus: business.estado_finanzas || current.business.accessStatus || 'activo',
+                    financeAccess: business.acceso_finanzas !== false
+                }
+            }));
+        },
         saveCostSheet(sheet) {
             const savedSheet = {
                 ...sheet,
