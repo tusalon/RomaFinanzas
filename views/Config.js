@@ -17,13 +17,13 @@ function Config({ onBack }) {
         }));
     };
 
-    const saveConfig = () => {
-        actions.updateConfig({
+    const saveConfig = async () => {
+        await actions.updateConfig({
             mainCurrency: form.mainCurrency,
             desiredMargin: toNumber(form.desiredMargin),
             rates: form.rates
         });
-        setSavedMessage('Configuracion guardada localmente.');
+        setSavedMessage('Configuracion guardada para este negocio.');
     };
 
     return (
@@ -82,6 +82,7 @@ function Config({ onBack }) {
             </div>
 
             {savedMessage && <div className="bg-green-50 border border-green-100 text-green-700 rounded-xl p-3 text-sm mt-6">{savedMessage}</div>}
+            {state.syncError && <div className="bg-orange-50 border border-orange-100 text-orange-700 rounded-xl p-3 text-sm mt-6">{state.syncError}</div>}
 
             <button type="button" onClick={saveConfig} className="btn-primary mt-6">Guardar Cambios</button>
         </div>

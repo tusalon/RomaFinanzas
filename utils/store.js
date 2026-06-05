@@ -38,6 +38,7 @@ function loadFinanceState() {
 
 function FinanceProvider({ children }) {
     const [state, setState] = React.useState(loadFinanceState);
+    const activeBusinessIdRef = React.useRef(null);
 
     React.useEffect(() => {
         try {
@@ -48,7 +49,7 @@ function FinanceProvider({ children }) {
     }, [state]);
 
     const actions = React.useMemo(() => ({
-        addIncome(entry) {
+        async addIncome(entry) {
             const savedEntry = {
                 ...entry,
                 id: makeId('inc'),
@@ -60,9 +61,19 @@ function FinanceProvider({ children }) {
                 incomeEntries: [savedEntry, ...(current.incomeEntries || [])]
             }));
 
+            if (activeBusinessIdRef.current) {
+                try {
+                    await saveRomaFinanceIncome(activeBusinessIdRef.current, savedEntry);
+                    setState((current) => ({ ...current, syncError: '' }));
+                } catch (error) {
+                    console.error('No se pudo guardar el ingreso en Supabase:', error);
+                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar el ultimo ingreso.' }));
+                }
+            }
+
             return savedEntry;
         },
-        addExpense(entry) {
+        async addExpense(entry) {
             const savedEntry = {
                 ...entry,
                 id: makeId('exp'),
@@ -74,26 +85,50 @@ function FinanceProvider({ children }) {
                 expenseEntries: [savedEntry, ...(current.expenseEntries || [])]
             }));
 
+            if (activeBusinessIdRef.current) {
+                try {
+                    await saveRomaFinanceExpense(activeBusinessIdRef.current, savedEntry);
+                    setState((current) => ({ ...current, syncError: '' }));
+                } catch (error) {
+                    console.error('No se pudo guardar el gasto en Supabase:', error);
+                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar el ultimo gasto.' }));
+                }
+            }
+
             return savedEntry;
         },
-        updateConfig(config) {
+        async updateConfig(config) {
+            const nextConfig = {
+                ...state.config,
+                ...config,
+                rates: {
+                    ...state.config.rates,
+                    ...(config.rates || {})
+                }
+            };
+
             setState((current) => ({
                 ...current,
-                config: {
-                    ...current.config,
-                    ...config,
-                    rates: {
-                        ...current.config.rates,
-                        ...(config.rates || {})
-                    }
-                }
+                config: nextConfig
             }));
+
+            if (activeBusinessIdRef.current) {
+                try {
+                    await saveRomaFinanceConfig(activeBusinessIdRef.current, nextConfig);
+                    setState((current) => ({ ...current, syncError: '' }));
+                } catch (error) {
+                    console.error('No se pudo guardar la configuracion en Supabase:', error);
+                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar la configuracion.' }));
+                }
+            }
         },
-        setBusiness(business) {
+        async setBusiness(business) {
             if (!business) return;
 
             setState((current) => ({
                 ...current,
+                loadingFinanceData: true,
+                syncError: '',
                 business: {
                     ...current.business,
                     id: business.id,
@@ -104,8 +139,27 @@ function FinanceProvider({ children }) {
                     financeAccess: business.acceso_finanzas !== false
                 }
             }));
+
+            activeBusinessIdRef.current = business.id;
+
+            try {
+                const financeState = await loadRomaFinanceData(business);
+                setState((current) => ({
+                    ...current,
+                    ...financeState,
+                    loadingFinanceData: false,
+                    syncError: ''
+                }));
+            } catch (error) {
+                console.error('No se pudieron cargar los datos financieros:', error);
+                setState((current) => ({
+                    ...current,
+                    loadingFinanceData: false,
+                    syncError: 'No se pudieron cargar los datos financieros de Supabase.'
+                }));
+            }
         },
-        saveCostSheet(sheet) {
+        async saveCostSheet(sheet) {
             const savedSheet = {
                 ...sheet,
                 id: makeId('sheet'),
@@ -117,9 +171,19 @@ function FinanceProvider({ children }) {
                 costSheets: [savedSheet, ...(current.costSheets || [])]
             }));
 
+            if (activeBusinessIdRef.current) {
+                try {
+                    await saveRomaFinanceCostSheet(activeBusinessIdRef.current, savedSheet);
+                    setState((current) => ({ ...current, syncError: '' }));
+                } catch (error) {
+                    console.error('No se pudo guardar la ficha en Supabase:', error);
+                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar la ultima ficha de costo.' }));
+                }
+            }
+
             return savedSheet;
         }
-    }), []);
+    }), [state.config]);
 
     const value = React.useMemo(() => ({ state, actions }), [state, actions]);
 

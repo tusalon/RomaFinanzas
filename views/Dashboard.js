@@ -41,9 +41,21 @@ function Dashboard() {
                 <h2 className="text-xl font-bold">Hoy, {dateLabel}</h2>
                 <div className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold flex items-center gap-1">
                     <div className="icon-circle-check text-sm"></div>
-                    Datos locales
+                    Supabase
                 </div>
             </div>
+
+            {state.loadingFinanceData && (
+                <div className="card p-3 text-sm text-gray-600">
+                    Cargando datos financieros del negocio...
+                </div>
+            )}
+
+            {state.syncError && (
+                <div className="bg-orange-50 border border-orange-100 text-orange-700 rounded-xl p-3 text-sm">
+                    {state.syncError}
+                </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
                 <div className="card bg-gradient-to-br from-[var(--primary)] to-[var(--primary-dark)] text-white p-5 border-none">

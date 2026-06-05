@@ -23,13 +23,13 @@ function Income() {
         }));
     };
 
-    const submitIncome = (event) => {
+    const submitIncome = async (event) => {
         event.preventDefault();
-        actions.addIncome({
+        await actions.addIncome({
             ...form,
             amount: toNumber(form.amount)
         });
-        setSavedMessage('Ingreso guardado localmente.');
+        setSavedMessage('Ingreso guardado para este negocio.');
     };
 
     return (
@@ -83,6 +83,7 @@ function Income() {
                 </div>
 
                 {savedMessage && <div className="bg-green-50 border border-green-100 text-green-700 rounded-xl p-3 text-sm">{savedMessage}</div>}
+                {state.syncError && <div className="bg-orange-50 border border-orange-100 text-orange-700 rounded-xl p-3 text-sm">{state.syncError}</div>}
 
                 <button type="submit" className="btn-primary mt-6">
                     Guardar Ingreso

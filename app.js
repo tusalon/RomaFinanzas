@@ -52,7 +52,7 @@ function App() {
         if (!mounted) return;
 
         if (result.session && result.business) {
-          actions.setBusiness(result.business);
+          await actions.setBusiness(result.business);
           setAuthUser(result.user);
           setIsAuthenticated(true);
           setCurrentView('dashboard');
@@ -76,9 +76,9 @@ function App() {
     window.scrollTo(0, 0);
   };
 
-  const handleLogin = (authResult) => {
+  const handleLogin = async (authResult) => {
     if (authResult?.business) {
-      actions.setBusiness(authResult.business);
+      await actions.setBusiness(authResult.business);
     }
     setAuthUser(authResult?.user || null);
     setIsAuthenticated(true);

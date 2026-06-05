@@ -17,7 +17,7 @@ function Login({ onLogin, checkingSession }) {
         setLoading(true);
         try {
             const result = await loginRomaFinanzas(username, password);
-            onLogin(result);
+            await onLogin(result);
         } catch (loginError) {
             setError(loginError.message || 'No se pudo entrar.');
         } finally {

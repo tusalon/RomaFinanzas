@@ -14,13 +14,13 @@ function Expenses() {
         setForm((current) => ({ ...current, [field]: value }));
     };
 
-    const submitExpense = (event) => {
+    const submitExpense = async (event) => {
         event.preventDefault();
-        actions.addExpense({
+        await actions.addExpense({
             ...form,
             amount: toNumber(form.amount)
         });
-        setSavedMessage('Gasto guardado localmente.');
+        setSavedMessage('Gasto guardado para este negocio.');
     };
 
     return (
@@ -57,6 +57,7 @@ function Expenses() {
                 </div>
 
                 {savedMessage && <div className="bg-green-50 border border-green-100 text-green-700 rounded-xl p-3 text-sm">{savedMessage}</div>}
+                {state.syncError && <div className="bg-orange-50 border border-orange-100 text-orange-700 rounded-xl p-3 text-sm">{state.syncError}</div>}
 
                 <button type="submit" className="w-full bg-gray-900 text-white font-medium py-3 px-4 rounded-xl shadow-sm active:scale-[0.98] transition-transform duration-150 flex items-center justify-center gap-2 mt-6">
                     Registrar Gasto

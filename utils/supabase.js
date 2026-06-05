@@ -198,3 +198,325 @@ async function getRomaAuthSession() {
 async function logoutRomaFinanzas() {
     window.localStorage.removeItem(ROMA_SESSION_KEY);
 }
+
+function mapFinanceServiceFromDb(row) {
+    return {
+        id: row.id,
+        name: row.name,
+        category: row.category || 'General',
+        price: toNumber(row.price),
+        duration: toNumber(row.duration) || 60,
+        currency: row.currency || 'CUP',
+        active: row.active !== false,
+        defaultMaterials: Array.isArray(row.default_materials) ? row.default_materials : []
+    };
+}
+
+function mapBusinessServiceToFinance(row) {
+    return {
+        id: `servicio_${row.id}`,
+        name: row.nombre || 'Servicio',
+        category: row.categoria || 'General',
+        price: toNumber(row.precio),
+        duration: toNumber(row.duracion) || 60,
+        currency: 'CUP',
+        active: row.activo !== false,
+        defaultMaterials: []
+    };
+}
+
+function mapFinanceMaterialFromDb(row) {
+    return {
+        id: row.id,
+        name: row.name,
+        cost: toNumber(row.cost),
+        currency: row.currency || 'CUP',
+        uses: toNumber(row.uses) || 1,
+        costPerUse: toNumber(row.cost_per_use),
+        unit: row.unit || 'uso',
+        stock: toNumber(row.stock)
+    };
+}
+
+function mapFinanceIncomeFromDb(row) {
+    return {
+        id: row.id,
+        date: row.date,
+        serviceId: row.service_id || '',
+        client: row.client || '',
+        amount: toNumber(row.amount),
+        currency: row.currency || 'CUP',
+        paymentMethod: row.payment_method || 'Efectivo',
+        note: row.note || ''
+    };
+}
+
+function normalizeFinanceText(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+function mapBookingToFinanceIncome(row, services = []) {
+    const serviceName = String(row.servicio || '').trim();
+    const matchedService = (services || []).find((service) => normalizeFinanceText(service.name) === normalizeFinanceText(serviceName));
+    const amount = toNumber(row.monto_cobrado) || toNumber(row.precio_final) || toNumber(row.precio_original) || toNumber(matchedService?.price);
+
+    return {
+        id: `reserva_${row.id}`,
+        date: row.fecha || getTodayKey(),
+        serviceId: matchedService?.id || '',
+        client: row.cliente_nombre || '',
+        amount,
+        currency: matchedService?.currency || 'CUP',
+        paymentMethod: row.monto_cobrado ? 'Cobro real' : 'Reserva completada',
+        note: `Cita ${row.estado || ''}`.trim()
+    };
+}
+
+function mapFinanceExpenseFromDb(row) {
+    return {
+        id: row.id,
+        date: row.date,
+        category: row.category || 'Otro',
+        description: row.description || '',
+        amount: toNumber(row.amount),
+        currency: row.currency || 'CUP',
+        type: row.type || 'diario'
+    };
+}
+
+function mapFinanceSheetFromDb(row) {
+    return {
+        id: row.id,
+        serviceId: row.service_id || '',
+        serviceName: row.service_name || '',
+        materialUsages: Array.isArray(row.material_usages) ? row.material_usages : [],
+        extraExpenses: Array.isArray(row.extra_expenses) ? row.extra_expenses : [],
+        salePrice: toNumber(row.sale_price),
+        saleCurrency: row.sale_currency || 'CUP',
+        totals: row.totals || {},
+        createdAt: row.created_at
+    };
+}
+
+function buildFinanceSeedState(business) {
+    const seed = JSON.parse(JSON.stringify(INITIAL_DATA));
+    seed.business = {
+        ...seed.business,
+        id: business.id,
+        name: business.nombre || seed.business.name,
+        email: business.email || '',
+        logoUrl: business.logo_url || '',
+        accessStatus: business.estado_finanzas || 'activo',
+        financeAccess: business.acceso_finanzas !== false
+    };
+    seed.incomeEntries = [];
+    seed.expenseEntries = [];
+    seed.costSheets = [];
+    return seed;
+}
+
+async function seedRomaFinanceDataIfNeeded(business, services, materials, config) {
+    let seededServices = Array.isArray(services) ? services : [];
+    let seededMaterials = Array.isArray(materials) ? materials : [];
+
+    if (!Array.isArray(services) || services.length === 0) {
+        const businessServicesResponse = await romaSupabase
+            .from('servicios')
+            .select('id,nombre,categoria,precio,duracion,activo')
+            .eq('negocio_id', business.id)
+            .eq('activo', true)
+            .order('id', { ascending: true });
+
+        if (businessServicesResponse.error) throw businessServicesResponse.error;
+
+        seededServices = (businessServicesResponse.data || [])
+            .map(mapBusinessServiceToFinance)
+            .map((service) => ({
+                negocio_id: business.id,
+                id: service.id,
+                name: service.name,
+                category: service.category,
+                price: service.price,
+                duration: service.duration,
+                currency: service.currency,
+                active: service.active !== false,
+                default_materials: service.defaultMaterials || [],
+                updated_at: new Date().toISOString()
+            }));
+    }
+
+    if (!Array.isArray(materials) || materials.length === 0) {
+        seededMaterials = [];
+    }
+
+    return { services: seededServices, materials: seededMaterials };
+}
+
+async function syncRomaFinanceServicesFromBusiness(business, currentServices = []) {
+    const businessServicesResponse = await romaSupabase
+        .from('servicios')
+        .select('id,nombre,categoria,precio,duracion,activo')
+        .eq('negocio_id', business.id)
+        .eq('activo', true)
+        .order('id', { ascending: true });
+
+    if (businessServicesResponse.error) throw businessServicesResponse.error;
+
+    const existingById = new Map((currentServices || []).map(service => [String(service.id), service]));
+    const realServices = (businessServicesResponse.data || []).map(mapBusinessServiceToFinance);
+    const serviceRows = realServices.map((service) => {
+        const existing = existingById.get(String(service.id));
+        return {
+            negocio_id: business.id,
+            id: service.id,
+            name: service.name,
+            category: service.category,
+            price: service.price,
+            duration: service.duration,
+            currency: service.currency,
+            active: service.active !== false,
+            default_materials: existing?.default_materials || existing?.defaultMaterials || [],
+            updated_at: new Date().toISOString()
+        };
+    });
+
+    if (serviceRows.length === 0) return [];
+    return serviceRows;
+}
+
+async function loadRomaFinanceData(business) {
+    if (!business?.id) throw new Error('No hay negocio activo para cargar finanzas.');
+
+    const [configResponse, servicesResponse, materialsResponse, incomeResponse, expensesResponse, sheetsResponse] = await Promise.all([
+        romaSupabase.from('roma_finanzas_config').select('*').eq('negocio_id', business.id).maybeSingle(),
+        romaSupabase.from('roma_finanzas_services').select('*').eq('negocio_id', business.id).order('created_at', { ascending: true }),
+        romaSupabase.from('roma_finanzas_materials').select('*').eq('negocio_id', business.id).order('created_at', { ascending: true }),
+        romaSupabase.from('roma_finanzas_ingresos').select('*').eq('negocio_id', business.id).order('date', { ascending: false }).order('created_at', { ascending: false }),
+        romaSupabase.from('roma_finanzas_gastos').select('*').eq('negocio_id', business.id).order('date', { ascending: false }).order('created_at', { ascending: false }),
+        romaSupabase.from('roma_finanzas_fichas_costo').select('*').eq('negocio_id', business.id).order('created_at', { ascending: false })
+    ]);
+
+    const responses = [configResponse, servicesResponse, materialsResponse, incomeResponse, expensesResponse, sheetsResponse];
+    const tableError = responses.find((response) => response.error);
+    if (tableError) throw tableError.error;
+
+    const seeded = await seedRomaFinanceDataIfNeeded(
+        business,
+        servicesResponse.data,
+        materialsResponse.data,
+        configResponse.data
+    );
+
+    const syncedServiceRows = await syncRomaFinanceServicesFromBusiness(
+        business,
+        seeded.services || servicesResponse.data || []
+    );
+
+    const seed = buildFinanceSeedState(business);
+    const config = configResponse.data ? {
+        mainCurrency: configResponse.data.main_currency || 'CUP',
+        desiredMargin: toNumber(configResponse.data.desired_margin) || 60,
+        rates: {
+            ...seed.config.rates,
+            ...(configResponse.data.rates || {})
+        }
+    } : seed.config;
+    const financeServices = (syncedServiceRows || []).length > 0
+        ? syncedServiceRows.map(mapFinanceServiceFromDb)
+        : seed.services;
+    const bookingIncomeResponse = await romaSupabase
+        .from('reservas')
+        .select('id,fecha,cliente_nombre,servicio,estado,monto_cobrado,precio_final,precio_original')
+        .eq('negocio_id', business.id)
+        .eq('estado', 'Completado')
+        .order('fecha', { ascending: false })
+        .limit(500);
+
+    if (bookingIncomeResponse.error) throw bookingIncomeResponse.error;
+
+    const bookingIncomeEntries = (bookingIncomeResponse.data || [])
+        .map((booking) => mapBookingToFinanceIncome(booking, financeServices))
+        .filter((entry) => entry.amount > 0);
+    const manualIncomeEntries = (incomeResponse.data || []).map(mapFinanceIncomeFromDb);
+    const incomeById = new Map();
+    [...bookingIncomeEntries, ...manualIncomeEntries].forEach((entry) => {
+        incomeById.set(String(entry.id), entry);
+    });
+
+    return {
+        ...seed,
+        config,
+        services: financeServices,
+        materials: (seeded.materials || materialsResponse.data || []).length > 0
+            ? (seeded.materials || materialsResponse.data || []).map(mapFinanceMaterialFromDb)
+            : seed.materials,
+        incomeEntries: Array.from(incomeById.values()),
+        expenseEntries: (expensesResponse.data || []).map(mapFinanceExpenseFromDb),
+        costSheets: (sheetsResponse.data || []).map(mapFinanceSheetFromDb)
+    };
+}
+
+async function saveRomaFinanceConfig(negocioId, config) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    const { error } = await romaSupabase.from('roma_finanzas_config').upsert({
+        negocio_id: negocioId,
+        main_currency: config.mainCurrency || 'CUP',
+        desired_margin: toNumber(config.desiredMargin) || 60,
+        rates: config.rates || {},
+        updated_at: new Date().toISOString()
+    }, { onConflict: 'negocio_id' });
+    if (error) throw error;
+}
+
+async function saveRomaFinanceIncome(negocioId, entry) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    const { error } = await romaSupabase.from('roma_finanzas_ingresos').upsert({
+        negocio_id: negocioId,
+        id: entry.id,
+        date: entry.date || getTodayKey(),
+        service_id: entry.serviceId || null,
+        client: entry.client || null,
+        amount: toNumber(entry.amount),
+        currency: entry.currency || 'CUP',
+        payment_method: entry.paymentMethod || null,
+        note: entry.note || null
+    }, { onConflict: 'negocio_id,id' });
+    if (error) throw error;
+}
+
+async function saveRomaFinanceExpense(negocioId, entry) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    const { error } = await romaSupabase.from('roma_finanzas_gastos').upsert({
+        negocio_id: negocioId,
+        id: entry.id,
+        date: entry.date || getTodayKey(),
+        category: entry.category || null,
+        description: entry.description || null,
+        amount: toNumber(entry.amount),
+        currency: entry.currency || 'CUP',
+        type: entry.type || null
+    }, { onConflict: 'negocio_id,id' });
+    if (error) throw error;
+}
+
+async function saveRomaFinanceCostSheet(negocioId, sheet) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    const { error } = await romaSupabase.from('roma_finanzas_fichas_costo').upsert({
+        negocio_id: negocioId,
+        id: sheet.id,
+        service_id: sheet.serviceId || null,
+        service_name: sheet.serviceName || null,
+        material_usages: sheet.materialUsages || [],
+        extra_expenses: sheet.extraExpenses || [],
+        sale_price: toNumber(sheet.salePrice),
+        sale_currency: sheet.saleCurrency || 'CUP',
+        totals: sheet.totals || {},
+        created_at: sheet.createdAt || new Date().toISOString()
+    }, { onConflict: 'negocio_id,id' });
+    if (error) throw error;
+}
