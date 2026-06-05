@@ -21,8 +21,8 @@ function TopBar({ view, onBack, onLogout, authUser }) {
                     </button>
                 )}
                 {!isSubView && (
-                    <div className="w-8 h-8 rounded-full bg-[var(--primary-light)] flex items-center justify-center">
-                        <div className="icon-sparkles text-[var(--primary)] text-sm"></div>
+                    <div className="w-9 h-9 rounded-full bg-white border border-pink-100 shadow-sm flex items-center justify-center overflow-hidden">
+                        <img src="icons/icon-192x192.png" alt="Roma Finanzas" className="w-full h-full object-cover" />
                     </div>
                 )}
                 <h1 className="text-lg font-semibold text-[var(--text-main)]">{titles[view] || 'Roma Finanzas'}</h1>

@@ -29,8 +29,8 @@ function Login({ onLogin, checkingSession }) {
         <div className="min-h-screen flex flex-col p-6 items-center justify-center bg-white" data-name="login" data-file="views/Login.js">
             <div className="w-full max-w-sm">
                 <div className="text-center">
-                    <div className="w-24 h-24 bg-[var(--primary-light)] rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-inner transform rotate-3">
-                        <div className="icon-calculator text-5xl text-[var(--primary)]"></div>
+                    <div className="w-24 h-24 bg-white rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-lg border border-pink-100 overflow-hidden">
+                        <img src="icons/icon-192x192.png" alt="Roma Finanzas" className="w-full h-full object-cover" />
                     </div>
 
                     <h1 className="text-3xl font-bold text-gray-900 mb-2">Roma Finanzas</h1>
