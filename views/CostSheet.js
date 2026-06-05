@@ -51,8 +51,8 @@ function CostSheet({ onBack }) {
     const getMarginAlert = () => {
         if (result.margin < 0) {
             return {
-                title: 'Estas perdiendo dinero con este servicio.',
-                text: 'El precio que estas cobrando no cubre lo que gastas.',
+                title: 'Estás perdiendo dinero con este servicio.',
+                text: 'El precio que estás cobrando no cubre lo que gastas.',
                 className: 'bg-red-50 text-red-700 border-red-100',
                 icon: 'icon-triangle-alert'
             };
@@ -60,15 +60,15 @@ function CostSheet({ onBack }) {
 
         if (result.margin >= state.config.desiredMargin) {
             return {
-                title: 'Este servicio si deja buena ganancia.',
-                text: 'Tu precio esta por encima del margen que quieres lograr.',
+                title: 'Este servicio sí deja buena ganancia.',
+                text: 'Tu precio está por encima del margen que quieres lograr.',
                 className: 'bg-green-50 text-green-700 border-green-100',
                 icon: 'icon-circle-check'
             };
         }
 
         return {
-            title: 'Estas cobrando poco para lo que gastas.',
+            title: 'Estás cobrando poco para lo que gastas.',
             text: 'Puedes subir el precio o revisar materiales para mejorar la ganancia.',
             className: 'bg-orange-50 text-orange-700 border-orange-100',
             icon: 'icon-circle-alert'
@@ -131,7 +131,7 @@ function CostSheet({ onBack }) {
             setCopyMessage('Resumen copiado.');
         } catch (error) {
             console.warn('No se pudo copiar el resumen:', error);
-            setCopyMessage('No se pudo copiar automaticamente.');
+            setCopyMessage('No se pudo copiar automáticamente.');
         }
     };
 
@@ -160,7 +160,7 @@ function CostSheet({ onBack }) {
     return (
         <div className="p-4 pb-10 space-y-5" data-name="cost-sheet" data-file="views/CostSheet.js">
             <div className="px-1">
-                <p className="text-sm text-gray-600">Calcula cuanto te queda limpio y si el precio que cobras tiene sentido.</p>
+                <p className="text-sm text-gray-600">Calcula cuánto te queda limpio y si el precio que cobras tiene sentido.</p>
             </div>
 
             <div className="card p-4 space-y-3">
@@ -205,7 +205,7 @@ function CostSheet({ onBack }) {
                         </div>
 
                         <p className="text-xs text-gray-600">
-                            Puedes cambiar este precio para probar si conviene cobrar mas o menos.
+                            Puedes cambiar este precio para probar si conviene cobrar más o menos.
                         </p>
                     </div>
 
@@ -213,7 +213,7 @@ function CostSheet({ onBack }) {
                         <div className="flex items-center justify-between mb-2 px-1">
                             <label className="label !mb-0">3. Materiales usados</label>
                             <button type="button" onClick={addMaterial} className="text-[var(--primary)] text-sm font-medium flex items-center gap-1">
-                                <div className="icon-plus text-xs"></div> Anadir
+                                <div className="icon-plus text-xs"></div> Añadir
                             </button>
                         </div>
 
@@ -265,7 +265,7 @@ function CostSheet({ onBack }) {
                         <div className="flex items-center justify-between mb-2 px-1">
                             <label className="label !mb-0">4. Gastos extra</label>
                             <button type="button" onClick={addExtra} className="text-[var(--primary)] text-sm font-medium flex items-center gap-1">
-                                <div className="icon-plus text-xs"></div> Anadir
+                                <div className="icon-plus text-xs"></div> Añadir
                             </button>
                         </div>
 
@@ -313,7 +313,7 @@ function CostSheet({ onBack }) {
                         <div>
                             <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider">Resumen de ganancia</h3>
                             <p className="text-3xl font-black mt-2">{formatMoney(result.profitMain, mainCurrency)}</p>
-                            <p className="text-sm text-gray-300">{profitLabel} despues de descontar costos.</p>
+                            <p className="text-sm text-gray-300">{profitLabel} después de descontar costos.</p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
@@ -330,7 +330,7 @@ function CostSheet({ onBack }) {
                                 <p className="text-lg font-bold">{formatMoney(result.recommendedPriceMain, mainCurrency)}</p>
                             </div>
                             <div className="bg-white/10 rounded-xl p-3">
-                                <p className="text-xs text-gray-400 mb-1">Subir minimo</p>
+                                <p className="text-xs text-gray-400 mb-1">Subir mínimo</p>
                                 <p className="text-lg font-bold">{formatMoney(recommendedDifference, mainCurrency)}</p>
                             </div>
                         </div>
@@ -386,7 +386,7 @@ function CostSheet({ onBack }) {
 
                     {savedSheets.length > 0 && (
                         <div className="card p-4">
-                            <h3 className="font-bold text-gray-900 mb-3">Ultimas fichas guardadas</h3>
+                            <h3 className="font-bold text-gray-900 mb-3">Últimas fichas guardadas</h3>
                             <div className="space-y-3">
                                 {savedSheets.map((sheet) => (
                                     <div key={sheet.id} className="rounded-xl bg-gray-50 p-3 border border-gray-100">

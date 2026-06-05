@@ -141,11 +141,11 @@ async function loginRomaFinanzas(username, password) {
     const cleanPassword = String(password || '').trim();
 
     if (!cleanUsername || !cleanPassword) {
-        throw new Error('Escribe tu usuario y contrasena.');
+        throw new Error('Escribe tu usuario y contraseña.');
     }
 
     if (typeof bcrypt === 'undefined') {
-        throw new Error('No se cargo el verificador de contrasena.');
+        throw new Error('No se cargó el verificador de contraseña.');
     }
 
     const business = await fetchRomaBusinessByLogin(cleanUsername);
@@ -155,12 +155,12 @@ async function loginRomaFinanzas(username, password) {
     }
 
     if (!business.password_hash) {
-        throw new Error('Este negocio no tiene contrasena configurada.');
+        throw new Error('Este negocio no tiene contraseña configurada.');
     }
 
     const passwordValid = bcrypt.compareSync(cleanPassword, business.password_hash);
     if (!passwordValid) {
-        throw new Error('Contrasena incorrecta.');
+        throw new Error('Contraseña incorrecta.');
     }
 
     if (!canUseRomaFinanzas(business)) {

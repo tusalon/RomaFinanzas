@@ -117,8 +117,8 @@ function FinanceProvider({ children }) {
                     await saveRomaFinanceConfig(activeBusinessIdRef.current, nextConfig);
                     setState((current) => ({ ...current, syncError: '' }));
                 } catch (error) {
-                    console.error('No se pudo guardar la configuracion en Supabase:', error);
-                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar la configuracion.' }));
+                    console.error('No se pudo guardar la configuración en Supabase:', error);
+                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar la configuración.' }));
                 }
             }
         },

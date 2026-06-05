@@ -10,7 +10,7 @@ function Login({ onLogin, checkingSession }) {
 
         setError('');
         if (!username.trim() || !password) {
-            setError('Escribe tu usuario y contrasena.');
+            setError('Escribe tu usuario y contraseña.');
             return;
         }
 
@@ -34,7 +34,7 @@ function Login({ onLogin, checkingSession }) {
                     </div>
 
                     <h1 className="text-3xl font-bold text-gray-900 mb-2">Roma Finanzas</h1>
-                    <p className="text-gray-500 mb-8 text-sm px-4">Calcula si tu salon realmente esta ganando.</p>
+                    <p className="text-gray-500 mb-8 text-sm px-4">Calcula si tu salón realmente está ganando.</p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4 w-full">
@@ -52,13 +52,13 @@ function Login({ onLogin, checkingSession }) {
                     </div>
 
                     <div>
-                        <label className="label">Contrasena</label>
+                        <label className="label">Contraseña</label>
                         <input
                             type="password"
                             className="input-field bg-white"
                             value={password}
                             onChange={(event) => setPassword(event.target.value)}
-                            placeholder="Tu contrasena"
+                            placeholder="Tu contraseña"
                             autoComplete="current-password"
                         />
                     </div>
@@ -71,7 +71,7 @@ function Login({ onLogin, checkingSession }) {
 
                     {checkingSession && (
                         <div className="bg-gray-50 border border-gray-100 text-gray-600 rounded-xl p-3 text-sm">
-                            Verificando sesion guardada...
+                            Verificando sesión guardada...
                         </div>
                     )}
 
@@ -83,7 +83,7 @@ function Login({ onLogin, checkingSession }) {
                 <div className="mt-8 p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-start gap-3 text-left">
                     <div className="icon-circle-alert text-gray-400 mt-0.5 shrink-0"></div>
                     <p className="text-xs text-gray-500 leading-relaxed">
-                        <strong>Aviso de acceso:</strong> Solo los negocios con usuario activo de RservasRoma y acceso a Roma Finanzas podran utilizar esta herramienta.
+                        <strong>Aviso de acceso:</strong> Solo los negocios con usuario activo de RservasRoma y acceso a Roma Finanzas podrán utilizar esta herramienta.
                     </p>
                 </div>
             </div>

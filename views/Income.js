@@ -36,7 +36,7 @@ function Income() {
         <div className="p-4" data-name="income" data-file="views/Income.js">
             <div className="bg-green-50 rounded-2xl p-4 border border-green-100 mb-6 flex gap-3">
                 <div className="icon-coins text-green-600 mt-1"></div>
-                <p className="text-sm text-green-800">Registra un servicio completado para sumarlo a tus ingresos del dia.</p>
+                <p className="text-sm text-green-800">Registra un servicio completado para sumarlo a tus ingresos del día.</p>
             </div>
 
             <form className="space-y-5" onSubmit={submitIncome}>
@@ -68,7 +68,7 @@ function Income() {
                 </div>
 
                 <div>
-                    <label className="label">Metodo de pago</label>
+                    <label className="label">Método de pago</label>
                     <div className="grid grid-cols-2 gap-3 mt-2">
                         {['Efectivo', 'Transferencia'].map((method) => (
                             <label key={method} className="relative flex cursor-pointer">

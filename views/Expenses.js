@@ -8,7 +8,7 @@ function Expenses() {
         type: 'diario'
     });
     const [savedMessage, setSavedMessage] = React.useState('');
-    const categories = ['Materiales', 'Renta', 'Electricidad', 'Internet', 'Transporte', 'Publicidad', 'Comision', 'Comida', 'Otro'];
+    const categories = ['Materiales', 'Renta', 'Electricidad', 'Internet', 'Transporte', 'Publicidad', 'Comisión', 'Comida', 'Otro'];
 
     const updateField = (field, value) => {
         setForm((current) => ({ ...current, [field]: value }));
@@ -27,19 +27,19 @@ function Expenses() {
         <div className="p-4" data-name="expenses" data-file="views/Expenses.js">
             <div className="bg-red-50 rounded-2xl p-4 border border-red-100 mb-6 flex gap-3">
                 <div className="icon-receipt text-red-600 mt-1"></div>
-                <p className="text-sm text-red-800">Registra compras de materiales, pagos de local u otros gastos del salon.</p>
+                <p className="text-sm text-red-800">Registra compras de materiales, pagos de local u otros gastos del salón.</p>
             </div>
 
             <form className="space-y-5" onSubmit={submitExpense}>
                 <div>
-                    <label className="label">Categoria de gasto</label>
+                    <label className="label">Categoría de gasto</label>
                     <select className="input-field" value={form.category} onChange={(event) => updateField('category', event.target.value)}>
                         {categories.map((category) => <option key={category}>{category}</option>)}
                     </select>
                 </div>
 
                 <div>
-                    <label className="label">Descripcion</label>
+                    <label className="label">Descripción</label>
                     <input type="text" className="input-field" placeholder="Ej. Compra de tinte rubio" value={form.description} onChange={(event) => updateField('description', event.target.value)} />
                 </div>
 

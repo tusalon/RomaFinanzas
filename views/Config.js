@@ -23,7 +23,7 @@ function Config({ onBack }) {
             desiredMargin: toNumber(form.desiredMargin),
             rates: form.rates
         });
-        setSavedMessage('Configuracion guardada para este negocio.');
+        setSavedMessage('Configuración guardada para este negocio.');
     };
 
     return (
@@ -35,7 +35,7 @@ function Config({ onBack }) {
                     </div>
                     <div>
                         <h3 className="font-bold text-gray-900">Moneda principal</h3>
-                        <p className="text-xs text-gray-500">Para reportes y calculos totales</p>
+                        <p className="text-xs text-gray-500">Para reportes y cálculos totales</p>
                     </div>
                 </div>
 
@@ -67,7 +67,7 @@ function Config({ onBack }) {
 
             <div className="card p-5 border-dashed border-2 border-gray-200 bg-transparent">
                 <h3 className="font-bold text-gray-900 mb-1">Margen deseado</h3>
-                <p className="text-xs text-gray-500 mb-4">La app te avisara si la ficha de costo baja de este margen.</p>
+                <p className="text-xs text-gray-500 mb-4">La app te avisará si la ficha de costo baja de este margen.</p>
                 <div className="flex items-center gap-3">
                     <input
                         type="range"

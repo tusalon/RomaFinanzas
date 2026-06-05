@@ -58,7 +58,7 @@ function App() {
           setCurrentView('dashboard');
         }
       } catch (error) {
-        console.warn('No se pudo verificar la sesion:', error);
+        console.warn('No se pudo verificar la sesión:', error);
       } finally {
         if (mounted) setCheckingSession(false);
       }
