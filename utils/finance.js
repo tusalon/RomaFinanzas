@@ -1,5 +1,29 @@
 const SUPPORTED_CURRENCIES = ['CUP', 'USD', 'MLC', 'EUR'];
 
+const EXPENSE_TYPES = [
+    {
+        id: 'fijo',
+        label: 'Fijo mensual',
+        description: 'Renta, corriente, salario, internet o pagos que se repiten.'
+    },
+    {
+        id: 'cotidiano',
+        label: 'Cotidiano',
+        description: 'Café, galletas, transporte, comida u otros gastos del día.'
+    },
+    {
+        id: 'herramienta',
+        label: 'Herramienta/equipo',
+        description: 'Lámparas, alicates, muebles o equipos que duran varios meses.'
+    }
+];
+
+const EXPENSE_CATEGORIES = {
+    fijo: ['Renta', 'Corriente', 'Salario', 'Internet', 'Teléfono', 'Contabilidad', 'Otro fijo'],
+    cotidiano: ['Materiales de uso rápido', 'Café y galletas', 'Transporte', 'Comida', 'Publicidad', 'Comisión', 'Otro cotidiano'],
+    herramienta: ['Lámparas', 'Alicates', 'Limas', 'Muebles', 'Equipos', 'Herramientas', 'Otro equipo']
+};
+
 function getTodayKey() {
     return new Date().toISOString().slice(0, 10);
 }
@@ -30,6 +54,49 @@ function formatMoney(amount, currency) {
         minimumFractionDigits: value % 1 === 0 ? 0 : 2,
         maximumFractionDigits: 2
     })} ${currency}`;
+}
+
+function getExpenseTypeMeta(type) {
+    return EXPENSE_TYPES.find((item) => item.id === normalizeExpenseType(type)) || EXPENSE_TYPES[1];
+}
+
+function normalizeExpenseType(type) {
+    if (type === 'diario') return 'cotidiano';
+    return EXPENSE_TYPES.some((item) => item.id === type) ? type : 'cotidiano';
+}
+
+function getExpenseCategories(type) {
+    return EXPENSE_CATEGORIES[normalizeExpenseType(type)] || EXPENSE_CATEGORIES.cotidiano;
+}
+
+function getMonthsBetween(startDate, endDate) {
+    if (!(startDate instanceof Date) || !(endDate instanceof Date)) return 0;
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
+    return (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth());
+}
+
+function getExpenseMonthlyDepreciation(entry, config) {
+    const amountMain = convertToMainCurrency(entry.amount, entry.currency, config);
+    const lifeMonths = Math.max(toNumber(entry.usefulLifeMonths), 1);
+    return amountMain / lifeMonths;
+}
+
+function getExpenseImpact(entry, config, periodType = 'day', referenceDate = new Date()) {
+    if (normalizeExpenseType(entry.type) !== 'herramienta') {
+        return convertToMainCurrency(entry.amount, entry.currency, config);
+    }
+
+    const purchaseDate = new Date(`${entry.date || getTodayKey()}T00:00:00`);
+    if (purchaseDate > referenceDate) return 0;
+
+    const lifeMonths = Math.max(toNumber(entry.usefulLifeMonths), 1);
+    const elapsedMonths = getMonthsBetween(purchaseDate, referenceDate);
+    if (elapsedMonths >= lifeMonths) return 0;
+
+    const monthlyDepreciation = getExpenseMonthlyDepreciation(entry, config);
+    if (periodType === 'month') return monthlyDepreciation;
+    if (periodType === 'week') return monthlyDepreciation / 4.345;
+    return monthlyDepreciation / 30;
 }
 
 function getMaterialCostPerUse(material) {

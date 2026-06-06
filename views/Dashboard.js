@@ -17,18 +17,23 @@ function Dashboard() {
     const isThisWeek = (entry) => entryDate(entry) >= weekStart;
     const isThisMonth = (entry) => entryDate(entry) >= monthStart;
 
-    const sumEntries = (entries) => entries.reduce((sum, entry) => (
+    const sumIncome = (entries) => entries.reduce((sum, entry) => (
         sum + convertToMainCurrency(entry.amount, entry.currency, state.config)
     ), 0);
 
-    const buildPeriod = (label, incomeEntries, expenseEntries) => {
-        const incomeTotal = sumEntries(incomeEntries);
-        const expenseTotal = sumEntries(expenseEntries);
+    const sumExpenseImpact = (entries, periodType) => entries.reduce((sum, entry) => (
+        sum + getExpenseImpact(entry, state.config, periodType, now)
+    ), 0);
+
+    const buildPeriod = (label, incomeEntries, expenseEntries, periodType) => {
+        const incomeTotal = sumIncome(incomeEntries);
+        const expenseTotal = sumExpenseImpact(expenseEntries, periodType);
         const profit = incomeTotal - expenseTotal;
         const margin = incomeTotal > 0 ? (profit / incomeTotal) * 100 : 0;
 
         return {
             label,
+            periodType,
             incomeEntries,
             expenseEntries,
             incomeTotal,
@@ -41,18 +46,28 @@ function Dashboard() {
     const todayPeriod = buildPeriod(
         'Hoy',
         state.incomeEntries.filter(isToday),
-        state.expenseEntries.filter(isToday)
+        state.expenseEntries.filter((entry) => isToday(entry) || normalizeExpenseType(entry.type) === 'herramienta'),
+        'day'
     );
     const weekPeriod = buildPeriod(
         'Esta semana',
         state.incomeEntries.filter(isThisWeek),
-        state.expenseEntries.filter(isThisWeek)
+        state.expenseEntries.filter((entry) => isThisWeek(entry) || normalizeExpenseType(entry.type) === 'herramienta'),
+        'week'
     );
     const monthPeriod = buildPeriod(
         'Este mes',
         state.incomeEntries.filter(isThisMonth),
-        state.expenseEntries.filter(isThisMonth)
+        state.expenseEntries.filter((entry) => isThisMonth(entry) || normalizeExpenseType(entry.type) === 'herramienta'),
+        'month'
     );
+
+    const expenseBreakdown = monthPeriod.expenseEntries.reduce((acc, entry) => {
+        const type = normalizeExpenseType(entry.type);
+        const impact = getExpenseImpact(entry, state.config, 'month', now);
+        acc[type] = (acc[type] || 0) + impact;
+        return acc;
+    }, {});
 
     const serviceStats = monthPeriod.incomeEntries.reduce((acc, entry) => {
         const service = state.services.find((item) => String(item.id) === String(entry.serviceId));
@@ -66,6 +81,7 @@ function Dashboard() {
     }, {});
     const topService = Object.values(serviceStats).sort((a, b) => b.amount - a.amount)[0];
     const expensePressure = monthPeriod.incomeTotal > 0 ? (monthPeriod.expenseTotal / monthPeriod.incomeTotal) * 100 : 0;
+    const assetCount = (state.expenseEntries || []).filter((entry) => normalizeExpenseType(entry.type) === 'herramienta').length;
 
     const getDiagnosis = () => {
         if (monthPeriod.incomeTotal <= 0) {
@@ -106,8 +122,9 @@ function Dashboard() {
     const diagnosis = getDiagnosis();
     const recommendations = [
         state.costSheets.length === 0 ? 'Crea fichas de costo para saber qué servicios dejan dinero limpio.' : '',
-        expensePressure > 35 ? 'Los gastos del mes están altos frente a los ingresos. Revisa materiales, renta y pagos frecuentes.' : '',
+        expensePressure > 35 ? 'Los gastos del mes están altos frente a los ingresos. Revisa gastos fijos, cotidianos y herramientas.' : '',
         topService ? `${topService.name} es tu servicio más fuerte del mes: generó ${formatMoney(topService.amount, mainCurrency)} en ${topService.count} cita(s).` : '',
+        assetCount > 0 ? `Tienes ${assetCount} herramienta(s) registradas con depreciación, así la ganancia se mide más realista.` : '',
         monthPeriod.margin < desiredMargin && monthPeriod.incomeTotal > 0 ? `Tu margen actual es ${monthPeriod.margin.toFixed(1)}% y tu meta es ${desiredMargin}%.` : '',
         monthPeriod.incomeEntries.length > 0 ? 'Registra cobros reales y gastos cada día para que el diagnóstico sea más exacto.' : 'Completa o registra al menos una cita para empezar el diagnóstico.'
     ].filter(Boolean).slice(0, 4);
@@ -124,11 +141,11 @@ function Dashboard() {
                 currency: entry.currency
             };
         }),
-        ...todayPeriod.expenseEntries.map((entry) => ({
+        ...state.expenseEntries.filter(isToday).map((entry) => ({
             id: entry.id,
             type: 'expense',
-            title: entry.description,
-            detail: entry.category,
+            title: entry.description || entry.category,
+            detail: getExpenseTypeMeta(entry.type).label,
             amount: entry.amount,
             currency: entry.currency
         }))
@@ -144,7 +161,7 @@ function Dashboard() {
                     <strong>{formatMoney(period.incomeTotal, mainCurrency)}</strong>
                 </div>
                 <div className="flex justify-between">
-                    <span>Gastos</span>
+                    <span>Gastos reales</span>
                     <strong>{formatMoney(period.expenseTotal, mainCurrency)}</strong>
                 </div>
                 <div className="flex justify-between">
@@ -235,6 +252,21 @@ function Dashboard() {
             <div className="grid grid-cols-1 gap-4">
                 <PeriodCard period={weekPeriod} tone={weekPeriod.profit >= 0 ? 'text-green-600' : 'text-red-600'} />
                 <PeriodCard period={monthPeriod} tone={monthPeriod.profit >= 0 ? 'text-green-600' : 'text-red-600'} />
+            </div>
+
+            <div className="card p-4">
+                <h3 className="text-lg font-bold mb-3">Gastos del mes por tipo</h3>
+                <div className="space-y-3">
+                    {EXPENSE_TYPES.map((type) => (
+                        <div key={type.id} className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-b-0 last:pb-0">
+                            <div>
+                                <p className="font-semibold text-gray-900">{type.label}</p>
+                                <p className="text-xs text-gray-500">{type.id === 'herramienta' ? 'Depreciación mensual' : 'Monto registrado'}</p>
+                            </div>
+                            <p className="font-bold text-gray-900">{formatMoney(expenseBreakdown[type.id] || 0, mainCurrency)}</p>
+                        </div>
+                    ))}
+                </div>
             </div>
 
             <div className="card p-4">

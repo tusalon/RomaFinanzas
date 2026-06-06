@@ -285,7 +285,9 @@ function mapFinanceExpenseFromDb(row) {
         description: row.description || '',
         amount: toNumber(row.amount),
         currency: row.currency || 'CUP',
-        type: row.type || 'diario'
+        type: row.type || 'cotidiano',
+        usefulLifeMonths: toNumber(row.useful_life_months),
+        depreciationNote: row.depreciation_note || ''
     };
 }
 
@@ -499,7 +501,9 @@ async function saveRomaFinanceExpense(negocioId, entry) {
         description: entry.description || null,
         amount: toNumber(entry.amount),
         currency: entry.currency || 'CUP',
-        type: entry.type || null
+        type: entry.type || 'cotidiano',
+        useful_life_months: entry.type === 'herramienta' ? Math.max(toNumber(entry.usefulLifeMonths), 1) : null,
+        depreciation_note: entry.depreciationNote || null
     }, { onConflict: 'negocio_id,id' });
     if (error) throw error;
 }

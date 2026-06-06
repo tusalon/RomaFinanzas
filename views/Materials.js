@@ -5,10 +5,10 @@ function Materials({ onBack }) {
         <div className="p-4" data-name="materials" data-file="views/Materials.js">
             <button className="btn-secondary mb-6 border-dashed border-2 text-blue-600 border-blue-200 bg-blue-50/50">
                 <div className="icon-plus"></div>
-                Registrar Nuevo Material
+                Registrar nuevo material
             </button>
 
-            <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 px-1">Inventario Basico</h3>
+            <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 px-1">Inventario básico</h3>
 
             <div className="space-y-3">
                 {state.materials.map((mat) => (
@@ -16,7 +16,7 @@ function Materials({ onBack }) {
                         <div className="flex justify-between items-start mb-2">
                             <h4 className="font-bold text-gray-900">{mat.name}</h4>
                             <div className="bg-gray-100 rounded-lg px-2 py-1 text-right">
-                                <p className="text-[10px] text-gray-500 uppercase">Costo Total</p>
+                                <p className="text-[10px] text-gray-500 uppercase">Costo total</p>
                                 <p className="font-bold text-sm">{formatMoney(mat.cost, mat.currency)}</p>
                             </div>
                         </div>

@@ -81,9 +81,15 @@ create table if not exists public.roma_finanzas_gastos (
     amount numeric not null default 0,
     currency text not null default 'CUP',
     type text,
+    useful_life_months integer,
+    depreciation_note text,
     created_at timestamptz not null default now(),
     primary key (negocio_id, id)
 );
+
+alter table public.roma_finanzas_gastos
+add column if not exists useful_life_months integer,
+add column if not exists depreciation_note text;
 
 create table if not exists public.roma_finanzas_fichas_costo (
     negocio_id uuid not null references public.negocios(id) on delete cascade,

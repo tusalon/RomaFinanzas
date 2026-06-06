@@ -67,7 +67,7 @@ function FinanceProvider({ children }) {
                     setState((current) => ({ ...current, syncError: '' }));
                 } catch (error) {
                     console.error('No se pudo guardar el ingreso en Supabase:', error);
-                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar el ultimo ingreso.' }));
+                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar el último ingreso.' }));
                 }
             }
 
@@ -91,7 +91,7 @@ function FinanceProvider({ children }) {
                     setState((current) => ({ ...current, syncError: '' }));
                 } catch (error) {
                     console.error('No se pudo guardar el gasto en Supabase:', error);
-                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar el ultimo gasto.' }));
+                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar el último gasto.' }));
                 }
             }
 
@@ -177,7 +177,7 @@ function FinanceProvider({ children }) {
                     setState((current) => ({ ...current, syncError: '' }));
                 } catch (error) {
                     console.error('No se pudo guardar la ficha en Supabase:', error);
-                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar la ultima ficha de costo.' }));
+                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar la última ficha de costo.' }));
                 }
             }
 
