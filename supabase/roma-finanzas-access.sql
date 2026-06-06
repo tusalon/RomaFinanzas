@@ -106,6 +106,63 @@ alter table public.roma_finanzas_ingresos disable row level security;
 alter table public.roma_finanzas_gastos disable row level security;
 alter table public.roma_finanzas_fichas_costo disable row level security;
 
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.roma_finanzas_config to anon, authenticated;
+grant select, insert, update, delete on public.roma_finanzas_services to anon, authenticated;
+grant select, insert, update, delete on public.roma_finanzas_materials to anon, authenticated;
+grant select, insert, update, delete on public.roma_finanzas_ingresos to anon, authenticated;
+grant select, insert, update, delete on public.roma_finanzas_gastos to anon, authenticated;
+grant select, insert, update, delete on public.roma_finanzas_fichas_costo to anon, authenticated;
+
+drop policy if exists "roma_finanzas_config_public_access" on public.roma_finanzas_config;
+drop policy if exists "roma_finanzas_services_public_access" on public.roma_finanzas_services;
+drop policy if exists "roma_finanzas_materials_public_access" on public.roma_finanzas_materials;
+drop policy if exists "roma_finanzas_ingresos_public_access" on public.roma_finanzas_ingresos;
+drop policy if exists "roma_finanzas_gastos_public_access" on public.roma_finanzas_gastos;
+drop policy if exists "roma_finanzas_fichas_public_access" on public.roma_finanzas_fichas_costo;
+
+create policy "roma_finanzas_config_public_access"
+on public.roma_finanzas_config
+for all
+to anon, authenticated
+using (true)
+with check (true);
+
+create policy "roma_finanzas_services_public_access"
+on public.roma_finanzas_services
+for all
+to anon, authenticated
+using (true)
+with check (true);
+
+create policy "roma_finanzas_materials_public_access"
+on public.roma_finanzas_materials
+for all
+to anon, authenticated
+using (true)
+with check (true);
+
+create policy "roma_finanzas_ingresos_public_access"
+on public.roma_finanzas_ingresos
+for all
+to anon, authenticated
+using (true)
+with check (true);
+
+create policy "roma_finanzas_gastos_public_access"
+on public.roma_finanzas_gastos
+for all
+to anon, authenticated
+using (true)
+with check (true);
+
+create policy "roma_finanzas_fichas_public_access"
+on public.roma_finanzas_fichas_costo
+for all
+to anon, authenticated
+using (true)
+with check (true);
+
 create index if not exists idx_roma_finanzas_ingresos_negocio_date
 on public.roma_finanzas_ingresos (negocio_id, date desc);
 
