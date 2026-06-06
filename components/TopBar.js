@@ -2,7 +2,7 @@ function TopBar({ view, onBack, onLogout, authUser }) {
     const titles = {
         dashboard: 'Resumen Diario',
         income: 'Registrar Ingreso',
-        expenses: 'Registrar Gasto',
+        expenses: 'Registrar gasto',
         menu: 'Más Opciones',
         services: 'Mis Servicios',
         materials: 'Materiales',

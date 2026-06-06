@@ -86,7 +86,7 @@ function Income() {
                 {state.syncError && <div className="bg-orange-50 border border-orange-100 text-orange-700 rounded-xl p-3 text-sm">{state.syncError}</div>}
 
                 <button type="submit" className="btn-primary mt-6">
-                    Guardar Ingreso
+                    Guardar ingreso
                 </button>
             </form>
         </div>

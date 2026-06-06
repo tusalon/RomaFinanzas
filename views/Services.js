@@ -6,10 +6,10 @@ function Services({ onBack }) {
         <div className="p-4" data-name="services" data-file="views/Services.js">
             <button className="btn-secondary mb-6 border-dashed border-2 text-[var(--primary)] border-[var(--primary-light)] bg-pink-50/50">
                 <div className="icon-plus"></div>
-                Crear Nuevo Servicio
+                Crear nuevo servicio
             </button>
 
-            <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 px-1">Catalogo Actual</h3>
+            <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 px-1">Catálogo actual</h3>
 
             <div className="space-y-3">
                 {activeServices.map((srv) => (

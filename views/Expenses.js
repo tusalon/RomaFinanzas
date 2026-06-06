@@ -60,7 +60,7 @@ function Expenses() {
                 {state.syncError && <div className="bg-orange-50 border border-orange-100 text-orange-700 rounded-xl p-3 text-sm">{state.syncError}</div>}
 
                 <button type="submit" className="w-full bg-gray-900 text-white font-medium py-3 px-4 rounded-xl shadow-sm active:scale-[0.98] transition-transform duration-150 flex items-center justify-center gap-2 mt-6">
-                    Registrar Gasto
+                    Registrar gasto
                 </button>
             </form>
         </div>

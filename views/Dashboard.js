@@ -2,19 +2,118 @@ function Dashboard() {
     const { state } = useFinanceApp();
     const today = getTodayKey();
     const mainCurrency = state.config.mainCurrency;
-    const todayIncome = state.incomeEntries.filter((entry) => entry.date === today);
-    const todayExpenses = state.expenseEntries.filter((entry) => entry.date === today);
-    const incomeTotal = todayIncome.reduce((sum, entry) => (
+    const desiredMargin = toNumber(state.config.desiredMargin);
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    weekStart.setHours(0, 0, 0, 0);
+
+    const dateLabel = now.toLocaleDateString('es-CU', { day: 'numeric', month: 'long' });
+    const monthLabel = now.toLocaleDateString('es-CU', { month: 'long', year: 'numeric' });
+
+    const entryDate = (entry) => new Date(`${entry.date}T00:00:00`);
+    const isToday = (entry) => entry.date === today;
+    const isThisWeek = (entry) => entryDate(entry) >= weekStart;
+    const isThisMonth = (entry) => entryDate(entry) >= monthStart;
+
+    const sumEntries = (entries) => entries.reduce((sum, entry) => (
         sum + convertToMainCurrency(entry.amount, entry.currency, state.config)
     ), 0);
-    const expenseTotal = todayExpenses.reduce((sum, entry) => (
-        sum + convertToMainCurrency(entry.amount, entry.currency, state.config)
-    ), 0);
-    const profit = incomeTotal - expenseTotal;
-    const margin = incomeTotal > 0 ? (profit / incomeTotal) * 100 : 0;
-    const dateLabel = new Date().toLocaleDateString('es-CU', { day: 'numeric', month: 'long' });
+
+    const buildPeriod = (label, incomeEntries, expenseEntries) => {
+        const incomeTotal = sumEntries(incomeEntries);
+        const expenseTotal = sumEntries(expenseEntries);
+        const profit = incomeTotal - expenseTotal;
+        const margin = incomeTotal > 0 ? (profit / incomeTotal) * 100 : 0;
+
+        return {
+            label,
+            incomeEntries,
+            expenseEntries,
+            incomeTotal,
+            expenseTotal,
+            profit,
+            margin
+        };
+    };
+
+    const todayPeriod = buildPeriod(
+        'Hoy',
+        state.incomeEntries.filter(isToday),
+        state.expenseEntries.filter(isToday)
+    );
+    const weekPeriod = buildPeriod(
+        'Esta semana',
+        state.incomeEntries.filter(isThisWeek),
+        state.expenseEntries.filter(isThisWeek)
+    );
+    const monthPeriod = buildPeriod(
+        'Este mes',
+        state.incomeEntries.filter(isThisMonth),
+        state.expenseEntries.filter(isThisMonth)
+    );
+
+    const serviceStats = monthPeriod.incomeEntries.reduce((acc, entry) => {
+        const service = state.services.find((item) => String(item.id) === String(entry.serviceId));
+        const serviceName = service ? service.name : 'Ingreso sin servicio';
+        const amount = convertToMainCurrency(entry.amount, entry.currency, state.config);
+        const current = acc[serviceName] || { name: serviceName, amount: 0, count: 0 };
+        current.amount += amount;
+        current.count += 1;
+        acc[serviceName] = current;
+        return acc;
+    }, {});
+    const topService = Object.values(serviceStats).sort((a, b) => b.amount - a.amount)[0];
+    const expensePressure = monthPeriod.incomeTotal > 0 ? (monthPeriod.expenseTotal / monthPeriod.incomeTotal) * 100 : 0;
+
+    const getDiagnosis = () => {
+        if (monthPeriod.incomeTotal <= 0) {
+            return {
+                title: 'Todavía faltan datos para medir tu negocio.',
+                text: 'Cuando entren citas completadas o ingresos manuales, Roma Finanzas podrá decirte si estás ganando de verdad.',
+                color: 'bg-blue-50 text-blue-800 border-blue-100',
+                icon: 'icon-info'
+            };
+        }
+
+        if (monthPeriod.profit <= 0) {
+            return {
+                title: 'Tu negocio está generando ventas, pero no ganancia.',
+                text: 'Los gastos están absorbiendo el dinero cobrado. Revisa precios, materiales y gastos fijos antes de seguir vendiendo igual.',
+                color: 'bg-red-50 text-red-800 border-red-100',
+                icon: 'icon-triangle-alert'
+            };
+        }
+
+        if (monthPeriod.margin >= desiredMargin) {
+            return {
+                title: 'Tu sistema de generación va bien.',
+                text: 'La ganancia real está por encima del margen que quieres lograr. Mantén controlados los gastos y protege tus servicios más rentables.',
+                color: 'bg-green-50 text-green-800 border-green-100',
+                icon: 'icon-circle-check'
+            };
+        }
+
+        return {
+            title: 'Hay ventas, pero la rentabilidad puede mejorar.',
+            text: 'El negocio está dejando ganancia, aunque por debajo del margen deseado. Conviene revisar fichas de costo y precios.',
+            color: 'bg-orange-50 text-orange-800 border-orange-100',
+            icon: 'icon-circle-alert'
+        };
+    };
+
+    const diagnosis = getDiagnosis();
+    const recommendations = [
+        state.costSheets.length === 0 ? 'Crea fichas de costo para saber qué servicios dejan dinero limpio.' : '',
+        expensePressure > 35 ? 'Los gastos del mes están altos frente a los ingresos. Revisa materiales, renta y pagos frecuentes.' : '',
+        topService ? `${topService.name} es tu servicio más fuerte del mes: generó ${formatMoney(topService.amount, mainCurrency)} en ${topService.count} cita(s).` : '',
+        monthPeriod.margin < desiredMargin && monthPeriod.incomeTotal > 0 ? `Tu margen actual es ${monthPeriod.margin.toFixed(1)}% y tu meta es ${desiredMargin}%.` : '',
+        monthPeriod.incomeEntries.length > 0 ? 'Registra cobros reales y gastos cada día para que el diagnóstico sea más exacto.' : 'Completa o registra al menos una cita para empezar el diagnóstico.'
+    ].filter(Boolean).slice(0, 4);
+
     const recentActivity = [
-        ...todayIncome.map((entry) => {
+        ...todayPeriod.incomeEntries.map((entry) => {
             const service = state.services.find((item) => item.id === entry.serviceId);
             return {
                 id: entry.id,
@@ -25,7 +124,7 @@ function Dashboard() {
                 currency: entry.currency
             };
         }),
-        ...todayExpenses.map((entry) => ({
+        ...todayPeriod.expenseEntries.map((entry) => ({
             id: entry.id,
             type: 'expense',
             title: entry.description,
@@ -35,13 +134,37 @@ function Dashboard() {
         }))
     ].slice(0, 4);
 
+    const PeriodCard = ({ period, tone }) => (
+        <div className="card p-4">
+            <p className="text-xs font-bold uppercase tracking-wide text-gray-400">{period.label}</p>
+            <h3 className={`text-2xl font-black mt-1 ${tone}`}>{formatMoney(period.profit, mainCurrency)}</h3>
+            <div className="mt-3 space-y-1 text-sm text-gray-600">
+                <div className="flex justify-between">
+                    <span>Ingresos</span>
+                    <strong>{formatMoney(period.incomeTotal, mainCurrency)}</strong>
+                </div>
+                <div className="flex justify-between">
+                    <span>Gastos</span>
+                    <strong>{formatMoney(period.expenseTotal, mainCurrency)}</strong>
+                </div>
+                <div className="flex justify-between">
+                    <span>Margen</span>
+                    <strong>{period.margin.toFixed(1)}%</strong>
+                </div>
+            </div>
+        </div>
+    );
+
     return (
         <div className="p-4 space-y-6" data-name="dashboard" data-file="views/Dashboard.js">
             <div className="flex items-center justify-between mb-2">
-                <h2 className="text-xl font-bold">Hoy, {dateLabel}</h2>
+                <div>
+                    <h2 className="text-xl font-bold">Hoy, {dateLabel}</h2>
+                    <p className="text-sm text-gray-500 capitalize">{monthLabel}</p>
+                </div>
                 <div className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold flex items-center gap-1">
                     <div className="icon-circle-check text-sm"></div>
-                    Supabase
+                    Datos reales
                 </div>
             </div>
 
@@ -57,13 +180,26 @@ function Dashboard() {
                 </div>
             )}
 
+            <div className={`rounded-2xl border p-4 ${diagnosis.color}`}>
+                <div className="flex gap-3">
+                    <div className="w-11 h-11 rounded-full bg-white/70 flex items-center justify-center shrink-0">
+                        <div className={`${diagnosis.icon} text-xl`}></div>
+                    </div>
+                    <div>
+                        <p className="text-xs font-black uppercase tracking-wide opacity-70">Diagnóstico del negocio</p>
+                        <h3 className="font-black text-lg leading-tight mt-1">{diagnosis.title}</h3>
+                        <p className="text-sm mt-2 opacity-90">{diagnosis.text}</p>
+                    </div>
+                </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
                 <div className="card bg-gradient-to-br from-[var(--primary)] to-[var(--primary-dark)] text-white p-5 border-none">
                     <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center mb-4">
                         <div className="icon-arrow-down text-xl text-white"></div>
                     </div>
                     <p className="text-white/80 text-sm font-medium mb-1">Ingresos de hoy</p>
-                    <h3 className="text-2xl font-bold">{formatMoney(incomeTotal, mainCurrency)}</h3>
+                    <h3 className="text-2xl font-bold">{formatMoney(todayPeriod.incomeTotal, mainCurrency)}</h3>
                 </div>
 
                 <div className="card p-5">
@@ -71,16 +207,16 @@ function Dashboard() {
                         <div className="icon-arrow-up text-xl text-red-500"></div>
                     </div>
                     <p className="text-gray-500 text-sm font-medium mb-1">Gastos de hoy</p>
-                    <h3 className="text-2xl font-bold text-gray-900">{formatMoney(expenseTotal, mainCurrency)}</h3>
+                    <h3 className="text-2xl font-bold text-gray-900">{formatMoney(todayPeriod.expenseTotal, mainCurrency)}</h3>
                 </div>
             </div>
 
             <div className="card bg-gray-900 text-white p-5">
                 <div className="flex justify-between items-center mb-6">
                     <div>
-                        <p className="text-gray-400 text-sm font-medium mb-1">Ganancia estimada</p>
-                        <h3 className={`text-3xl font-bold ${profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {formatMoney(profit, mainCurrency)}
+                        <p className="text-gray-400 text-sm font-medium mb-1">Ganancia real de hoy</p>
+                        <h3 className={`text-3xl font-bold ${todayPeriod.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {formatMoney(todayPeriod.profit, mainCurrency)}
                         </h3>
                     </div>
                     <div className="w-12 h-12 rounded-full border-4 border-[var(--primary)] flex items-center justify-center bg-gray-800">
@@ -89,10 +225,29 @@ function Dashboard() {
                 </div>
 
                 <div className="bg-gray-800 rounded-xl p-3 flex items-center justify-between">
-                    <span className="text-sm text-gray-300">Margen promedio</span>
-                    <span className={`text-sm font-bold flex items-center gap-1 ${margin >= state.config.desiredMargin ? 'text-green-400' : 'text-orange-300'}`}>
-                        <div className="icon-arrow-up text-xs"></div> {margin.toFixed(1)}%
+                    <span className="text-sm text-gray-300">Margen de hoy</span>
+                    <span className={`text-sm font-bold flex items-center gap-1 ${todayPeriod.margin >= desiredMargin ? 'text-green-400' : 'text-orange-300'}`}>
+                        <div className="icon-arrow-up text-xs"></div> {todayPeriod.margin.toFixed(1)}%
                     </span>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+                <PeriodCard period={weekPeriod} tone={weekPeriod.profit >= 0 ? 'text-green-600' : 'text-red-600'} />
+                <PeriodCard period={monthPeriod} tone={monthPeriod.profit >= 0 ? 'text-green-600' : 'text-red-600'} />
+            </div>
+
+            <div className="card p-4">
+                <h3 className="text-lg font-bold mb-3">Qué revisar ahora</h3>
+                <div className="space-y-3">
+                    {recommendations.map((recommendation, index) => (
+                        <div key={index} className="flex gap-3 text-sm text-gray-700">
+                            <div className="w-6 h-6 rounded-full bg-[var(--primary-light)] text-[var(--primary)] flex items-center justify-center shrink-0 font-bold text-xs">
+                                {index + 1}
+                            </div>
+                            <p>{recommendation}</p>
+                        </div>
+                    ))}
                 </div>
             </div>
 
@@ -118,7 +273,7 @@ function Dashboard() {
 
                     {recentActivity.length === 0 && (
                         <div className="card p-4 text-center text-sm text-gray-500">
-                            Todavia no hay movimientos hoy.
+                            Todavía no hay movimientos hoy.
                         </div>
                     )}
                 </div>
