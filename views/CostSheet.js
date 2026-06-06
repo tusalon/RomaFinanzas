@@ -2,12 +2,18 @@ function CostSheet({ onBack }) {
     const { state, actions } = useFinanceApp();
     const activeServices = state.services.filter((service) => service.active);
     const mainCurrency = state.config.mainCurrency;
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const [selectedServiceId, setSelectedServiceId] = React.useState(activeServices[0] ? activeServices[0].id : '');
     const [salePrice, setSalePrice] = React.useState(activeServices[0] ? activeServices[0].price : 0);
     const [saleCurrency, setSaleCurrency] = React.useState(activeServices[0] ? activeServices[0].currency : mainCurrency);
+    const [durationMinutes, setDurationMinutes] = React.useState(activeServices[0] ? activeServices[0].duration : 60);
+    const [hourlyValue, setHourlyValue] = React.useState(0);
+    const [monthlyServiceCount, setMonthlyServiceCount] = React.useState(0);
+    const [includeOverhead, setIncludeOverhead] = React.useState(true);
     const [materialUsages, setMaterialUsages] = React.useState([]);
     const [extraExpenses, setExtraExpenses] = React.useState([
-        { id: 'extra_1', description: 'Gasto extra', amount: 0, currency: mainCurrency }
+        { id: 'extra_1', description: 'Gasto puntual', amount: 0, currency: mainCurrency }
     ]);
     const [savedMessage, setSavedMessage] = React.useState('');
     const [copyMessage, setCopyMessage] = React.useState('');
@@ -19,6 +25,20 @@ function CostSheet({ onBack }) {
         currency: saleCurrency || selectedService.currency || mainCurrency
     } : null;
 
+    const monthIncomeCount = (state.incomeEntries || []).filter((entry) => {
+        const entryDate = new Date(`${entry.date || getTodayKey()}T00:00:00`);
+        return entryDate >= monthStart;
+    }).length;
+
+    const monthlyBusinessLoad = (state.expenseEntries || []).reduce((sum, entry) => {
+        const type = normalizeExpenseType(entry.type);
+        if (type !== 'fijo' && type !== 'herramienta') return sum;
+        return sum + getExpenseImpact(entry, state.config, 'month', now);
+    }, 0);
+
+    const serviceCountForOverhead = Math.max(toNumber(monthlyServiceCount) || monthIncomeCount || 1, 1);
+    const overheadPerService = includeOverhead ? monthlyBusinessLoad / serviceCountForOverhead : 0;
+
     React.useEffect(() => {
         if (!selectedService) {
             setMaterialUsages([]);
@@ -27,6 +47,8 @@ function CostSheet({ onBack }) {
 
         setSalePrice(selectedService.price || 0);
         setSaleCurrency(selectedService.currency || mainCurrency);
+        setDurationMinutes(selectedService.duration || 60);
+        setMonthlyServiceCount(monthIncomeCount || 30);
         setMaterialUsages((selectedService.defaultMaterials || []).map((item) => ({ ...item })));
         setSavedMessage('');
         setCopyMessage('');
@@ -37,7 +59,13 @@ function CostSheet({ onBack }) {
         materialUsages,
         extraExpenses,
         state.materials,
-        state.config
+        state.config,
+        {
+            durationMinutes,
+            hourlyValue,
+            hourlyCurrency: mainCurrency,
+            overheadCostMain: overheadPerService
+        }
     );
 
     const savedSheets = (state.costSheets || [])
@@ -45,14 +73,14 @@ function CostSheet({ onBack }) {
         .slice(0, 3);
 
     const recommendedDifference = Math.max(0, result.recommendedPriceMain - result.priceMain);
-    const profitLabel = result.profitMain >= 0 ? 'Ganancia limpia' : 'Perdida';
+    const profitLabel = result.profitMain >= 0 ? 'Ganancia limpia' : 'Pérdida';
     const marginWidth = `${Math.max(0, Math.min(100, result.margin))}%`;
 
     const getMarginAlert = () => {
         if (result.margin < 0) {
             return {
                 title: 'Estás perdiendo dinero con este servicio.',
-                text: 'El precio que estás cobrando no cubre lo que gastas.',
+                text: 'El precio no cubre materiales, tiempo y carga del negocio.',
                 className: 'bg-red-50 text-red-700 border-red-100',
                 icon: 'icon-triangle-alert'
             };
@@ -69,7 +97,7 @@ function CostSheet({ onBack }) {
 
         return {
             title: 'Estás cobrando poco para lo que gastas.',
-            text: 'Puedes subir el precio o revisar materiales para mejorar la ganancia.',
+            text: 'Puedes subir el precio, bajar consumo de materiales o revisar tu carga fija.',
             className: 'bg-orange-50 text-orange-700 border-orange-100',
             icon: 'icon-circle-alert'
         };
@@ -113,8 +141,10 @@ function CostSheet({ onBack }) {
         return [
             `Ficha de costo - ${selectedService.name}`,
             `Precio cobrado: ${formatMoney(result.priceMain, mainCurrency)}`,
-            `Costo en materiales: ${formatMoney(result.materialCostMain, mainCurrency)}`,
-            `Gastos extra: ${formatMoney(result.extraCostMain, mainCurrency)}`,
+            `Materiales: ${formatMoney(result.materialCostMain, mainCurrency)}`,
+            `Tiempo/mano de obra: ${formatMoney(result.laborCostMain, mainCurrency)}`,
+            `Carga fija por servicio: ${formatMoney(result.overheadCostMain, mainCurrency)}`,
+            `Gastos puntuales: ${formatMoney(result.extraCostMain, mainCurrency)}`,
             `Costo total: ${formatMoney(result.totalCostMain, mainCurrency)}`,
             `${profitLabel}: ${formatMoney(result.profitMain, mainCurrency)}`,
             `Margen: ${result.margin.toFixed(1)}%`,
@@ -148,10 +178,16 @@ function CostSheet({ onBack }) {
                 priceMain: result.priceMain,
                 materialCostMain: result.materialCostMain,
                 extraCostMain: result.extraCostMain,
+                laborCostMain: result.laborCostMain,
+                overheadCostMain: result.overheadCostMain,
                 totalCostMain: result.totalCostMain,
                 profitMain: result.profitMain,
                 margin: result.margin,
-                recommendedPriceMain: result.recommendedPriceMain
+                recommendedPriceMain: result.recommendedPriceMain,
+                durationMinutes: toNumber(durationMinutes),
+                hourlyValue: toNumber(hourlyValue),
+                monthlyBusinessLoad,
+                monthlyServiceCount: serviceCountForOverhead
             }
         });
         setSavedMessage('Ficha guardada para este negocio.');
@@ -160,7 +196,7 @@ function CostSheet({ onBack }) {
     return (
         <div className="p-4 pb-10 space-y-5" data-name="cost-sheet" data-file="views/CostSheet.js">
             <div className="px-1">
-                <p className="text-sm text-gray-600">Calcula cuánto te queda limpio y si el precio que cobras tiene sentido.</p>
+                <p className="text-sm text-gray-600">Calcula cuánto te queda limpio por servicio incluyendo materiales, tiempo y gastos del negocio.</p>
             </div>
 
             <div className="card p-4 space-y-3">
@@ -180,38 +216,109 @@ function CostSheet({ onBack }) {
                 <div className="space-y-5">
                     <div className="card p-4 bg-[var(--primary-light)] border-pink-100 space-y-4">
                         <div>
-                            <p className="text-xs font-bold text-[var(--primary-dark)] uppercase mb-1">2. Precio cobrado</p>
+                            <p className="text-xs font-bold text-[var(--primary-dark)] uppercase mb-1">2. Precio y tiempo</p>
                             <h2 className="text-xl font-bold text-gray-900">{selectedService.name}</h2>
-                            <p className="text-xs text-gray-600">{selectedService.category} - {selectedService.duration} min</p>
+                            <p className="text-xs text-gray-600">{selectedService.category}</p>
                         </div>
 
                         <div className="mobile-stack grid grid-cols-[1fr_110px] gap-2">
-                            <input
-                                type="number"
-                                min="0"
-                                className="input-field bg-white text-lg font-bold"
-                                value={salePrice}
-                                onChange={(event) => setSalePrice(event.target.value)}
-                            />
-                            <select
-                                className="input-field bg-white"
-                                value={saleCurrency}
-                                onChange={(event) => setSaleCurrency(event.target.value)}
-                            >
-                                {SUPPORTED_CURRENCIES.map((currency) => (
-                                    <option key={currency}>{currency}</option>
-                                ))}
-                            </select>
+                            <div>
+                                <label className="label">Precio cobrado</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    className="input-field bg-white text-lg font-bold"
+                                    value={salePrice}
+                                    onChange={(event) => setSalePrice(event.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="label">Moneda</label>
+                                <select
+                                    className="input-field bg-white"
+                                    value={saleCurrency}
+                                    onChange={(event) => setSaleCurrency(event.target.value)}
+                                >
+                                    {SUPPORTED_CURRENCIES.map((currency) => (
+                                        <option key={currency}>{currency}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="mobile-stack grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="label">Duración real</label>
+                                <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        className="input-field bg-white font-bold"
+                                        value={durationMinutes}
+                                        onChange={(event) => setDurationMinutes(event.target.value)}
+                                    />
+                                    <span className="text-sm font-semibold text-gray-600">min</span>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="label">Valor de tu hora</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    className="input-field bg-white font-bold"
+                                    value={hourlyValue}
+                                    onChange={(event) => setHourlyValue(event.target.value)}
+                                />
+                            </div>
                         </div>
 
                         <p className="text-xs text-gray-600">
-                            Puedes cambiar este precio para probar si conviene cobrar más o menos.
+                            Si no quieres contar tu tiempo todavía, deja el valor de tu hora en 0.
                         </p>
+                    </div>
+
+                    <div className="card p-4 border-blue-100 bg-blue-50 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <p className="text-xs font-bold uppercase text-blue-700 mb-1">3. Carga del negocio</p>
+                                <h3 className="font-bold text-blue-950">Gastos fijos y herramientas por servicio</h3>
+                                <p className="text-sm text-blue-800 mt-1">Se reparte renta, salario, corriente y depreciación de equipos entre los servicios del mes.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIncludeOverhead((current) => !current)}
+                                className={`px-3 py-2 rounded-xl text-xs font-bold ${includeOverhead ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 border border-blue-200'}`}
+                            >
+                                {includeOverhead ? 'Activo' : 'Omitir'}
+                            </button>
+                        </div>
+
+                        <div className="mobile-stack grid grid-cols-2 gap-3">
+                            <div className="bg-white rounded-xl p-3 border border-blue-100">
+                                <p className="text-xs text-blue-700 font-semibold">Carga mensual</p>
+                                <p className="text-lg font-black text-blue-950">{formatMoney(monthlyBusinessLoad, mainCurrency)}</p>
+                            </div>
+                            <div className="bg-white rounded-xl p-3 border border-blue-100">
+                                <label className="text-xs text-blue-700 font-semibold">Servicios al mes</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    className="input-field !py-2 mt-1 bg-white font-bold"
+                                    value={monthlyServiceCount}
+                                    onChange={(event) => setMonthlyServiceCount(event.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl p-3 border border-blue-100">
+                            <p className="text-xs text-blue-700 font-semibold">Carga aplicada a este servicio</p>
+                            <p className="text-xl font-black text-blue-950">{formatMoney(overheadPerService, mainCurrency)}</p>
+                        </div>
                     </div>
 
                     <div>
                         <div className="flex items-center justify-between mb-2 px-1">
-                            <label className="label !mb-0">3. Materiales usados</label>
+                            <label className="label !mb-0">4. Materiales usados</label>
                             <button type="button" onClick={addMaterial} className="text-[var(--primary)] text-sm font-medium flex items-center gap-1">
                                 <div className="icon-plus text-xs"></div> Añadir
                             </button>
@@ -263,7 +370,7 @@ function CostSheet({ onBack }) {
 
                     <div>
                         <div className="flex items-center justify-between mb-2 px-1">
-                            <label className="label !mb-0">4. Gastos extra</label>
+                            <label className="label !mb-0">5. Gastos puntuales del servicio</label>
                             <button type="button" onClick={addExtra} className="text-[var(--primary)] text-sm font-medium flex items-center gap-1">
                                 <div className="icon-plus text-xs"></div> Añadir
                             </button>
@@ -313,7 +420,7 @@ function CostSheet({ onBack }) {
                         <div>
                             <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider">Resumen de ganancia</h3>
                             <p className="text-3xl font-black mt-2">{formatMoney(result.profitMain, mainCurrency)}</p>
-                            <p className="text-sm text-gray-300">{profitLabel} después de descontar costos.</p>
+                            <p className="text-sm text-gray-300">{profitLabel} después de descontar todos los costos.</p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
@@ -355,7 +462,15 @@ function CostSheet({ onBack }) {
                                 <strong>- {formatMoney(result.materialCostMain, mainCurrency)}</strong>
                             </div>
                             <div className="flex justify-between gap-3">
-                                <span className="text-gray-400">Gastos extra</span>
+                                <span className="text-gray-400">Tiempo/mano de obra</span>
+                                <strong>- {formatMoney(result.laborCostMain, mainCurrency)}</strong>
+                            </div>
+                            <div className="flex justify-between gap-3">
+                                <span className="text-gray-400">Carga del negocio</span>
+                                <strong>- {formatMoney(result.overheadCostMain, mainCurrency)}</strong>
+                            </div>
+                            <div className="flex justify-between gap-3">
+                                <span className="text-gray-400">Gastos puntuales</span>
                                 <strong>- {formatMoney(result.extraCostMain, mainCurrency)}</strong>
                             </div>
                         </div>

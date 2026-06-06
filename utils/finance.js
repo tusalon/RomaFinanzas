@@ -106,12 +106,14 @@ function getMaterialCostPerUse(material) {
     return toNumber(material.cost) / uses;
 }
 
-function calculateCostSheet(service, materialUsages, extraExpenses, materials, config) {
+function calculateCostSheet(service, materialUsages, extraExpenses, materials, config, options = {}) {
     if (!service) {
         return {
             priceMain: 0,
             materialCostMain: 0,
             extraCostMain: 0,
+            laborCostMain: 0,
+            overheadCostMain: 0,
             totalCostMain: 0,
             profitMain: 0,
             margin: 0,
@@ -143,7 +145,11 @@ function calculateCostSheet(service, materialUsages, extraExpenses, materials, c
     const priceMain = convertToMainCurrency(service.price, service.currency, config);
     const materialCostMain = materialRows.reduce((sum, row) => sum + row.costMain, 0);
     const extraCostMain = extraRows.reduce((sum, row) => sum + row.costMain, 0);
-    const totalCostMain = materialCostMain + extraCostMain;
+    const durationMinutes = Math.max(toNumber(options.durationMinutes), 0);
+    const hourlyValueMain = convertToMainCurrency(toNumber(options.hourlyValue), options.hourlyCurrency || config.mainCurrency, config);
+    const laborCostMain = hourlyValueMain > 0 && durationMinutes > 0 ? (hourlyValueMain / 60) * durationMinutes : 0;
+    const overheadCostMain = toNumber(options.overheadCostMain);
+    const totalCostMain = materialCostMain + extraCostMain + laborCostMain + overheadCostMain;
     const profitMain = priceMain - totalCostMain;
     const margin = priceMain > 0 ? (profitMain / priceMain) * 100 : 0;
     const targetMargin = Math.min(Math.max(toNumber(config.desiredMargin), 1), 95);
@@ -153,6 +159,8 @@ function calculateCostSheet(service, materialUsages, extraExpenses, materials, c
         priceMain,
         materialCostMain,
         extraCostMain,
+        laborCostMain,
+        overheadCostMain,
         totalCostMain,
         profitMain,
         margin,
