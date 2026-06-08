@@ -7,14 +7,13 @@ function CostSheet({ onBack }) {
     const [selectedServiceId, setSelectedServiceId] = React.useState(activeServices[0] ? activeServices[0].id : '');
     const [salePrice, setSalePrice] = React.useState(activeServices[0] ? activeServices[0].price : 0);
     const [saleCurrency, setSaleCurrency] = React.useState(activeServices[0] ? activeServices[0].currency : mainCurrency);
+    const [simpleMaterialCost, setSimpleMaterialCost] = React.useState(0);
+    const [simpleExtraCost, setSimpleExtraCost] = React.useState(0);
     const [durationMinutes, setDurationMinutes] = React.useState(activeServices[0] ? activeServices[0].duration : 60);
     const [hourlyValue, setHourlyValue] = React.useState(0);
     const [monthlyServiceCount, setMonthlyServiceCount] = React.useState(0);
-    const [includeOverhead, setIncludeOverhead] = React.useState(true);
-    const [materialUsages, setMaterialUsages] = React.useState([]);
-    const [extraExpenses, setExtraExpenses] = React.useState([
-        { id: 'extra_1', description: 'Gasto puntual', amount: 0, currency: mainCurrency }
-    ]);
+    const [includeOverhead, setIncludeOverhead] = React.useState(false);
+    const [showAdvanced, setShowAdvanced] = React.useState(false);
     const [savedMessage, setSavedMessage] = React.useState('');
     const [copyMessage, setCopyMessage] = React.useState('');
 
@@ -38,18 +37,30 @@ function CostSheet({ onBack }) {
 
     const serviceCountForOverhead = Math.max(toNumber(monthlyServiceCount) || monthIncomeCount || 1, 1);
     const overheadPerService = includeOverhead ? monthlyBusinessLoad / serviceCountForOverhead : 0;
+    const simpleMaterial = {
+        id: 'manual_material',
+        name: 'Materiales usados',
+        cost: toNumber(simpleMaterialCost),
+        currency: mainCurrency,
+        uses: 1,
+        costPerUse: toNumber(simpleMaterialCost)
+    };
+    const materialUsages = toNumber(simpleMaterialCost) > 0
+        ? [{ materialId: 'manual_material', quantity: 1 }]
+        : [];
+    const extraExpenses = toNumber(simpleExtraCost) > 0
+        ? [{ id: 'manual_extra', description: 'Gastos extra', amount: toNumber(simpleExtraCost), currency: mainCurrency }]
+        : [];
 
     React.useEffect(() => {
-        if (!selectedService) {
-            setMaterialUsages([]);
-            return;
-        }
+        if (!selectedService) return;
 
         setSalePrice(selectedService.price || 0);
         setSaleCurrency(selectedService.currency || mainCurrency);
         setDurationMinutes(selectedService.duration || 60);
         setMonthlyServiceCount(monthIncomeCount || 30);
-        setMaterialUsages((selectedService.defaultMaterials || []).map((item) => ({ ...item })));
+        setSimpleMaterialCost(0);
+        setSimpleExtraCost(0);
         setSavedMessage('');
         setCopyMessage('');
     }, [selectedServiceId]);
@@ -58,7 +69,7 @@ function CostSheet({ onBack }) {
         effectiveService,
         materialUsages,
         extraExpenses,
-        state.materials,
+        [simpleMaterial],
         state.config,
         {
             durationMinutes,
@@ -79,8 +90,8 @@ function CostSheet({ onBack }) {
     const getMarginAlert = () => {
         if (result.margin < 0) {
             return {
-                title: 'Estás perdiendo dinero con este servicio.',
-                text: 'El precio no cubre materiales, tiempo y carga del negocio.',
+                title: 'Estás perdiendo dinero.',
+                text: 'El precio no cubre los costos que pusiste.',
                 className: 'bg-red-50 text-red-700 border-red-100',
                 icon: 'icon-triangle-alert'
             };
@@ -88,52 +99,22 @@ function CostSheet({ onBack }) {
 
         if (result.margin >= state.config.desiredMargin) {
             return {
-                title: 'Este servicio sí deja buena ganancia.',
-                text: 'Tu precio está por encima del margen que quieres lograr.',
+                title: 'Este servicio deja buena ganancia.',
+                text: 'El precio está por encima del margen que quieres lograr.',
                 className: 'bg-green-50 text-green-700 border-green-100',
                 icon: 'icon-circle-check'
             };
         }
 
         return {
-            title: 'Estás cobrando poco para lo que gastas.',
-            text: 'Puedes subir el precio, bajar consumo de materiales o revisar tu carga fija.',
+            title: 'Este servicio puede mejorar.',
+            text: 'Deja ganancia, pero menos de la meta configurada.',
             className: 'bg-orange-50 text-orange-700 border-orange-100',
             icon: 'icon-circle-alert'
         };
     };
 
     const alert = getMarginAlert();
-
-    const updateMaterial = (index, field, value) => {
-        setMaterialUsages((current) => current.map((item, itemIndex) => (
-            itemIndex === index ? { ...item, [field]: field === 'quantity' ? toNumber(value) : value } : item
-        )));
-    };
-
-    const addMaterial = () => {
-        const usedIds = materialUsages.map((item) => item.materialId);
-        const nextMaterial = state.materials.find((item) => !usedIds.includes(item.id)) || state.materials[0];
-        if (!nextMaterial) return;
-        setMaterialUsages((current) => [...current, { materialId: nextMaterial.id, quantity: 1 }]);
-    };
-
-    const removeMaterial = (index) => {
-        setMaterialUsages((current) => current.filter((_, itemIndex) => itemIndex !== index));
-    };
-
-    const updateExtra = (index, field, value) => {
-        setExtraExpenses((current) => current.map((item, itemIndex) => (
-            itemIndex === index ? { ...item, [field]: field === 'amount' ? toNumber(value) : value } : item
-        )));
-    };
-
-    const addExtra = () => {
-        setExtraExpenses((current) => [
-            ...current,
-            { id: makeId('extra'), description: 'Otro gasto', amount: 0, currency: mainCurrency }
-        ]);
-    };
 
     const buildSummaryText = () => {
         if (!selectedService) return '';
@@ -142,14 +123,14 @@ function CostSheet({ onBack }) {
             `Ficha de costo - ${selectedService.name}`,
             `Precio cobrado: ${formatMoney(result.priceMain, mainCurrency)}`,
             `Materiales: ${formatMoney(result.materialCostMain, mainCurrency)}`,
-            `Tiempo/mano de obra: ${formatMoney(result.laborCostMain, mainCurrency)}`,
-            `Carga fija por servicio: ${formatMoney(result.overheadCostMain, mainCurrency)}`,
-            `Gastos puntuales: ${formatMoney(result.extraCostMain, mainCurrency)}`,
+            showAdvanced ? `Tiempo/mano de obra: ${formatMoney(result.laborCostMain, mainCurrency)}` : '',
+            showAdvanced ? `Carga del negocio: ${formatMoney(result.overheadCostMain, mainCurrency)}` : '',
+            `Gastos extra: ${formatMoney(result.extraCostMain, mainCurrency)}`,
             `Costo total: ${formatMoney(result.totalCostMain, mainCurrency)}`,
             `${profitLabel}: ${formatMoney(result.profitMain, mainCurrency)}`,
             `Margen: ${result.margin.toFixed(1)}%`,
             `Precio recomendado: ${formatMoney(result.recommendedPriceMain, mainCurrency)}`
-        ].join('\n');
+        ].filter(Boolean).join('\n');
     };
 
     const copySummary = async () => {
@@ -187,7 +168,8 @@ function CostSheet({ onBack }) {
                 durationMinutes: toNumber(durationMinutes),
                 hourlyValue: toNumber(hourlyValue),
                 monthlyBusinessLoad,
-                monthlyServiceCount: serviceCountForOverhead
+                monthlyServiceCount: serviceCountForOverhead,
+                simpleMode: !showAdvanced
             }
         });
         setSavedMessage('Ficha guardada para este negocio.');
@@ -196,11 +178,11 @@ function CostSheet({ onBack }) {
     return (
         <div className="p-4 pb-10 space-y-5" data-name="cost-sheet" data-file="views/CostSheet.js">
             <div className="px-1">
-                <p className="text-sm text-gray-600">Calcula cuánto te queda limpio por servicio incluyendo materiales, tiempo y gastos del negocio.</p>
+                <p className="text-sm text-gray-600">Calcula rápido si un servicio deja ganancia.</p>
             </div>
 
             <div className="card p-4 space-y-3">
-                <label className="label">1. Servicio a revisar</label>
+                <label className="label">1. Servicio</label>
                 <select
                     className="input-field bg-white"
                     value={selectedServiceId}
@@ -216,195 +198,135 @@ function CostSheet({ onBack }) {
                 <div className="space-y-5">
                     <div className="card p-4 bg-[var(--primary-light)] border-pink-100 space-y-4">
                         <div>
-                            <p className="text-xs font-bold text-[var(--primary-dark)] uppercase mb-1">2. Precio y tiempo</p>
+                            <p className="text-xs font-bold text-[var(--primary-dark)] uppercase mb-1">2. Precio cobrado</p>
                             <h2 className="text-xl font-bold text-gray-900">{selectedService.name}</h2>
-                            <p className="text-xs text-gray-600">{selectedService.category}</p>
+                            <p className="text-xs text-gray-600">{selectedService.category} · {selectedService.duration} min</p>
                         </div>
 
                         <div className="mobile-stack grid grid-cols-[1fr_110px] gap-2">
-                            <div>
-                                <label className="label">Precio cobrado</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    className="input-field bg-white text-lg font-bold"
-                                    value={salePrice}
-                                    onChange={(event) => setSalePrice(event.target.value)}
-                                />
-                            </div>
-                            <div>
-                                <label className="label">Moneda</label>
-                                <select
-                                    className="input-field bg-white"
-                                    value={saleCurrency}
-                                    onChange={(event) => setSaleCurrency(event.target.value)}
-                                >
-                                    {SUPPORTED_CURRENCIES.map((currency) => (
-                                        <option key={currency}>{currency}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-
-                        <div className="mobile-stack grid grid-cols-2 gap-2">
-                            <div>
-                                <label className="label">Duración real</label>
-                                <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        className="input-field bg-white font-bold"
-                                        value={durationMinutes}
-                                        onChange={(event) => setDurationMinutes(event.target.value)}
-                                    />
-                                    <span className="text-sm font-semibold text-gray-600">min</span>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="label">Valor de tu hora</label>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    className="input-field bg-white font-bold"
-                                    value={hourlyValue}
-                                    onChange={(event) => setHourlyValue(event.target.value)}
-                                />
-                            </div>
-                        </div>
-
-                        <p className="text-xs text-gray-600">
-                            Si no quieres contar tu tiempo todavía, deja el valor de tu hora en 0.
-                        </p>
-                    </div>
-
-                    <div className="card p-4 border-blue-100 bg-blue-50 space-y-3">
-                        <div className="flex items-start justify-between gap-3">
-                            <div>
-                                <p className="text-xs font-bold uppercase text-blue-700 mb-1">3. Carga del negocio</p>
-                                <h3 className="font-bold text-blue-950">Gastos fijos y herramientas por servicio</h3>
-                                <p className="text-sm text-blue-800 mt-1">Se reparte renta, salario, corriente y depreciación de equipos entre los servicios del mes.</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setIncludeOverhead((current) => !current)}
-                                className={`px-3 py-2 rounded-xl text-xs font-bold ${includeOverhead ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 border border-blue-200'}`}
+                            <input
+                                type="number"
+                                min="0"
+                                className="input-field bg-white text-lg font-bold"
+                                value={salePrice}
+                                onChange={(event) => setSalePrice(event.target.value)}
+                            />
+                            <select
+                                className="input-field bg-white"
+                                value={saleCurrency}
+                                onChange={(event) => setSaleCurrency(event.target.value)}
                             >
-                                {includeOverhead ? 'Activo' : 'Omitir'}
-                            </button>
-                        </div>
-
-                        <div className="mobile-stack grid grid-cols-2 gap-3">
-                            <div className="bg-white rounded-xl p-3 border border-blue-100">
-                                <p className="text-xs text-blue-700 font-semibold">Carga mensual</p>
-                                <p className="text-lg font-black text-blue-950">{formatMoney(monthlyBusinessLoad, mainCurrency)}</p>
-                            </div>
-                            <div className="bg-white rounded-xl p-3 border border-blue-100">
-                                <label className="text-xs text-blue-700 font-semibold">Servicios al mes</label>
-                                <input
-                                    type="number"
-                                    min="1"
-                                    className="input-field !py-2 mt-1 bg-white font-bold"
-                                    value={monthlyServiceCount}
-                                    onChange={(event) => setMonthlyServiceCount(event.target.value)}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="bg-white rounded-xl p-3 border border-blue-100">
-                            <p className="text-xs text-blue-700 font-semibold">Carga aplicada a este servicio</p>
-                            <p className="text-xl font-black text-blue-950">{formatMoney(overheadPerService, mainCurrency)}</p>
+                                {SUPPORTED_CURRENCIES.map((currency) => (
+                                    <option key={currency}>{currency}</option>
+                                ))}
+                            </select>
                         </div>
                     </div>
 
-                    <div>
-                        <div className="flex items-center justify-between mb-2 px-1">
-                            <label className="label !mb-0">4. Materiales usados</label>
-                            <button type="button" onClick={addMaterial} className="text-[var(--primary)] text-sm font-medium flex items-center gap-1">
-                                <div className="icon-plus text-xs"></div> Añadir
-                            </button>
+                    <div className="card p-4 space-y-4">
+                        <div>
+                            <p className="text-xs font-bold text-gray-500 uppercase mb-1">3. Costos principales</p>
+                            <h3 className="font-bold text-gray-900">¿Cuánto gastaste para hacer este servicio?</h3>
                         </div>
 
-                        <div className="card p-0 overflow-hidden border border-gray-200">
-                            {materialUsages.length === 0 && (
-                                <div className="p-4 text-sm text-gray-500">No hay materiales asignados a este servicio.</div>
-                            )}
+                        <div>
+                            <label className="label">Materiales usados</label>
+                            <input
+                                type="number"
+                                min="0"
+                                className="input-field font-bold"
+                                placeholder="Ej. 350"
+                                value={simpleMaterialCost}
+                                onChange={(event) => setSimpleMaterialCost(event.target.value)}
+                            />
+                        </div>
 
-                            {materialUsages.map((usage, index) => {
-                                const material = state.materials.find((item) => item.id === usage.materialId);
-                                const lineCost = material ? getMaterialCostPerUse(material) * toNumber(usage.quantity) : 0;
-                                const lineCostMain = material ? convertToMainCurrency(lineCost, material.currency, state.config) : 0;
+                        <div>
+                            <label className="label">Otros gastos de este servicio</label>
+                            <input
+                                type="number"
+                                min="0"
+                                className="input-field font-bold"
+                                placeholder="Ej. transporte, comisión, ayuda"
+                                value={simpleExtraCost}
+                                onChange={(event) => setSimpleExtraCost(event.target.value)}
+                            />
+                        </div>
+                    </div>
 
-                                return (
-                                    <div key={`${usage.materialId}_${index}`} className="p-3 border-b border-gray-100 last:border-b-0 bg-gray-50 space-y-3">
-                                        <div className="mobile-stack grid grid-cols-[1fr_90px_36px] gap-2 items-center">
-                                            <select
-                                                className="input-field !py-2 !px-3 bg-white"
-                                                value={usage.materialId}
-                                                onChange={(event) => updateMaterial(index, 'materialId', event.target.value)}
-                                            >
-                                                {state.materials.map((item) => (
-                                                    <option key={item.id} value={item.id}>{item.name}</option>
-                                                ))}
-                                            </select>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                step="0.1"
-                                                className="input-field !py-2 !px-3 text-right bg-white"
-                                                value={usage.quantity}
-                                                onChange={(event) => updateMaterial(index, 'quantity', event.target.value)}
-                                            />
-                                            <button type="button" onClick={() => removeMaterial(index)} className="icon-button h-10 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-400">
-                                                <div className="icon-x text-sm"></div>
-                                            </button>
-                                        </div>
-                                        <div className="flex justify-between gap-3 text-xs text-gray-500">
-                                            <span>{material ? `${formatMoney(getMaterialCostPerUse(material), material.currency)} por uso` : 'Sin material'}</span>
-                                            <span className="font-semibold text-gray-800">{formatMoney(lineCostMain, mainCurrency)}</span>
-                                        </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowAdvanced((current) => !current)}
+                        className="btn-secondary"
+                    >
+                        <div className={showAdvanced ? 'icon-chevron-up text-sm' : 'icon-chevron-down text-sm'}></div>
+                        {showAdvanced ? 'Ocultar opciones avanzadas' : 'Opciones avanzadas'}
+                    </button>
+
+                    {showAdvanced && (
+                        <div className="card p-4 border-blue-100 bg-blue-50 space-y-4">
+                            <div>
+                                <p className="text-xs font-bold uppercase text-blue-700 mb-1">Opcional</p>
+                                <h3 className="font-bold text-blue-950">Tiempo y carga del negocio</h3>
+                                <p className="text-sm text-blue-800 mt-1">Úsalo si quieres una ficha más realista.</p>
+                            </div>
+
+                            <div className="mobile-stack grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="label text-blue-900">Duración real</label>
+                                    <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            className="input-field bg-white font-bold"
+                                            value={durationMinutes}
+                                            onChange={(event) => setDurationMinutes(event.target.value)}
+                                        />
+                                        <span className="text-sm font-semibold text-blue-900">min</span>
                                     </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    <div>
-                        <div className="flex items-center justify-between mb-2 px-1">
-                            <label className="label !mb-0">5. Gastos puntuales del servicio</label>
-                            <button type="button" onClick={addExtra} className="text-[var(--primary)] text-sm font-medium flex items-center gap-1">
-                                <div className="icon-plus text-xs"></div> Añadir
-                            </button>
-                        </div>
-
-                        <div className="space-y-3">
-                            {extraExpenses.map((expense, index) => (
-                                <div key={expense.id} className="mobile-stack card p-3 grid grid-cols-[1fr_96px_82px] gap-2 items-center">
-                                    <input
-                                        type="text"
-                                        className="input-field !py-2 !px-3"
-                                        value={expense.description}
-                                        onChange={(event) => updateExtra(index, 'description', event.target.value)}
-                                    />
+                                </div>
+                                <div>
+                                    <label className="label text-blue-900">Valor de tu hora</label>
                                     <input
                                         type="number"
                                         min="0"
-                                        className="input-field !py-2 !px-3 text-right"
-                                        value={expense.amount}
-                                        onChange={(event) => updateExtra(index, 'amount', event.target.value)}
+                                        className="input-field bg-white font-bold"
+                                        value={hourlyValue}
+                                        onChange={(event) => setHourlyValue(event.target.value)}
                                     />
-                                    <select
-                                        className="input-field !py-2 !px-2"
-                                        value={expense.currency}
-                                        onChange={(event) => updateExtra(index, 'currency', event.target.value)}
-                                    >
-                                        {SUPPORTED_CURRENCIES.map((currency) => (
-                                            <option key={currency}>{currency}</option>
-                                        ))}
-                                    </select>
                                 </div>
-                            ))}
+                            </div>
+
+                            <div className="border-t border-blue-100 pt-4 space-y-3">
+                                <label className="flex items-start gap-3">
+                                    <input
+                                        type="checkbox"
+                                        className="mt-1 accent-blue-600"
+                                        checked={includeOverhead}
+                                        onChange={(event) => setIncludeOverhead(event.target.checked)}
+                                    />
+                                    <span>
+                                        <span className="block font-bold text-blue-950">Incluir gastos fijos y herramientas</span>
+                                        <span className="block text-sm text-blue-800">La app reparte {formatMoney(monthlyBusinessLoad, mainCurrency)} entre los servicios del mes.</span>
+                                    </span>
+                                </label>
+
+                                {includeOverhead && (
+                                    <div className="bg-white rounded-xl p-3 border border-blue-100 space-y-2">
+                                        <label className="text-xs text-blue-700 font-semibold">Servicios estimados al mes</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            className="input-field !py-2 bg-white font-bold"
+                                            value={monthlyServiceCount}
+                                            onChange={(event) => setMonthlyServiceCount(event.target.value)}
+                                        />
+                                        <p className="text-xs text-blue-700">Carga por servicio: {formatMoney(overheadPerService, mainCurrency)}</p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     <div className={`card p-4 border-2 ${alert.className}`}>
                         <div className="flex items-start gap-3">
@@ -418,9 +340,9 @@ function CostSheet({ onBack }) {
 
                     <div className="card bg-gray-900 text-white p-5 border-none shadow-lg space-y-5">
                         <div>
-                            <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider">Resumen de ganancia</h3>
+                            <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider">Resultado</h3>
                             <p className="text-3xl font-black mt-2">{formatMoney(result.profitMain, mainCurrency)}</p>
-                            <p className="text-sm text-gray-300">{profitLabel} después de descontar todos los costos.</p>
+                            <p className="text-sm text-gray-300">{profitLabel} después de descontar costos.</p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
@@ -445,7 +367,7 @@ function CostSheet({ onBack }) {
                         <div>
                             <div className="flex justify-between text-xs text-gray-400 mb-2">
                                 <span>Margen actual</span>
-                                <span>Deseado: {state.config.desiredMargin}%</span>
+                                <span>Meta: {state.config.desiredMargin}%</span>
                             </div>
                             <div className="h-3 rounded-full bg-white/10 overflow-hidden">
                                 <div className="h-full rounded-full bg-[var(--primary)]" style={{ width: marginWidth }}></div>
@@ -461,16 +383,20 @@ function CostSheet({ onBack }) {
                                 <span className="text-gray-400">Materiales</span>
                                 <strong>- {formatMoney(result.materialCostMain, mainCurrency)}</strong>
                             </div>
+                            {showAdvanced && (
+                                <div className="flex justify-between gap-3">
+                                    <span className="text-gray-400">Tiempo</span>
+                                    <strong>- {formatMoney(result.laborCostMain, mainCurrency)}</strong>
+                                </div>
+                            )}
+                            {showAdvanced && includeOverhead && (
+                                <div className="flex justify-between gap-3">
+                                    <span className="text-gray-400">Gastos fijos</span>
+                                    <strong>- {formatMoney(result.overheadCostMain, mainCurrency)}</strong>
+                                </div>
+                            )}
                             <div className="flex justify-between gap-3">
-                                <span className="text-gray-400">Tiempo/mano de obra</span>
-                                <strong>- {formatMoney(result.laborCostMain, mainCurrency)}</strong>
-                            </div>
-                            <div className="flex justify-between gap-3">
-                                <span className="text-gray-400">Carga del negocio</span>
-                                <strong>- {formatMoney(result.overheadCostMain, mainCurrency)}</strong>
-                            </div>
-                            <div className="flex justify-between gap-3">
-                                <span className="text-gray-400">Gastos puntuales</span>
+                                <span className="text-gray-400">Otros gastos</span>
                                 <strong>- {formatMoney(result.extraCostMain, mainCurrency)}</strong>
                             </div>
                         </div>
@@ -479,11 +405,11 @@ function CostSheet({ onBack }) {
                     <div className="grid grid-cols-2 gap-3">
                         <button type="button" onClick={copySummary} className="btn-secondary">
                             <div className="icon-copy text-sm"></div>
-                            Copiar resumen
+                            Copiar
                         </button>
                         <button type="button" onClick={saveSheet} className="btn-primary">
                             <div className="icon-save text-sm"></div>
-                            Guardar ficha
+                            Guardar
                         </button>
                     </div>
 
