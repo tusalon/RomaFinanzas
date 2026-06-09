@@ -19,7 +19,7 @@ const EXPENSE_TYPES = [
 ];
 
 const EXPENSE_CATEGORIES = {
-    fijo: ['Renta', 'Corriente', 'Salario', 'Internet', 'Teléfono', 'Contabilidad', 'Otro fijo'],
+    fijo: ['Renta', 'Corriente', 'Salario', 'Internet', 'Teléfono', 'Contabilidad', 'RservasRoma', 'Otro fijo'],
     cotidiano: ['Materiales de uso rápido', 'Café y galletas', 'Transporte', 'Comida', 'Publicidad', 'Comisión', 'Otro cotidiano'],
     herramienta: ['Lámparas', 'Alicates', 'Limas', 'Muebles', 'Equipos', 'Herramientas', 'Otro equipo']
 };

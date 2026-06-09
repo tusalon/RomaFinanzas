@@ -101,7 +101,7 @@ function FinanceProvider({ children }) {
     const pushPendingChanges = React.useCallback(async () => {
         const negocioId = activeBusinessIdRef.current;
         if (!negocioId) throw new Error('No hay negocio activo para sincronizar.');
-        if (navigator.onLine === false) throw new Error('No hay conexion a internet.');
+        if (navigator.onLine === false) throw new Error('No hay conexión a internet.');
 
         const pending = stateRef.current.pendingSync || [];
 
@@ -198,8 +198,8 @@ function FinanceProvider({ children }) {
                     await saveRomaFinanceConfig(activeBusinessIdRef.current, nextConfig);
                     setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
                 } catch (error) {
-                    console.error('No se pudo guardar la configuracion en Supabase:', error);
-                    queueSync({ type: 'config', id: 'config' }, 'Configuracion guardada offline. Sincroniza cuando tengas internet.');
+                    console.error('No se pudo guardar la configuración en Supabase:', error);
+                    queueSync({ type: 'config', id: 'config' }, 'Configuración guardada offline. Sincroniza cuando tengas internet.');
                 }
             }
         },

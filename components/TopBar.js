@@ -16,7 +16,7 @@ function TopBar({ view, onBack, onLogout, authUser, syncStatus, pendingCount, la
     const syncTitle = hasPending
         ? `${pendingCount} cambio(s) pendiente(s) por sincronizar`
         : lastSyncAt
-            ? `Ultima sincronizacion: ${new Date(lastSyncAt).toLocaleString('es-CU')}`
+            ? `Última sincronización: ${new Date(lastSyncAt).toLocaleString('es-CU')}`
             : 'Sincronizar datos';
 
     return (

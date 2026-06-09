@@ -214,7 +214,7 @@ function Dashboard() {
                         <div>
                             <p className="text-xs font-black uppercase tracking-wide opacity-70">Modo offline</p>
                             <p className="font-bold">{syncLabel}</p>
-                            <p className="text-xs opacity-80">Puedes trabajar sin conexion. Usa el boton de arriba para sincronizar cuando tengas internet.</p>
+                            <p className="text-xs opacity-80">Puedes trabajar sin conexión. Usa el botón de arriba para sincronizar cuando tengas internet.</p>
                         </div>
                     </div>
                 </div>
