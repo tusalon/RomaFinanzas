@@ -135,7 +135,7 @@ function Materials({ onBack }) {
                                 value={form.currency}
                                 onChange={(event) => updateField('currency', event.target.value)}
                             >
-                                {SUPPORTED_CURRENCIES.map((currency) => <option key={currency}>{currency}</option>)}
+                                {['CUP', 'USD'].map((currency) => <option key={currency}>{currency}</option>)}
                             </select>
                         </div>
                     </div>

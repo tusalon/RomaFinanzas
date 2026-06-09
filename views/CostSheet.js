@@ -75,7 +75,7 @@ function CostSheet({ onBack }) {
                 id: item.id,
                 name: String(item.name || '').trim() || 'Material',
                 cost: totalCost,
-                currency: mainCurrency,
+                currency: item.currency || mainCurrency,
                 uses,
                 costPerUse: totalCost / uses,
                 unit: 'servicio'
@@ -169,7 +169,7 @@ function CostSheet({ onBack }) {
     const addMaterial = () => {
         setManualMaterials((current) => ([
             ...current,
-            { id: makeId('mat'), productId: '', name: '', totalCost: '', uses: '' }
+            { id: makeId('mat'), productId: '', name: '', totalCost: '', currency: mainCurrency, uses: '' }
         ]));
     };
 
@@ -187,6 +187,7 @@ function CostSheet({ onBack }) {
                 productId,
                 name: product ? product.name : item.name,
                 totalCost: product ? product.cost : item.totalCost,
+                currency: product ? product.currency : item.currency,
                 uses: product ? product.uses : item.uses
             } : item
         )));
@@ -393,7 +394,7 @@ function CostSheet({ onBack }) {
                                                 onChange={(event) => updateMaterial(item.id, 'name', event.target.value)}
                                             />
                                         </FieldRow>
-                                        <div className="mobile-stack grid grid-cols-[1fr_1fr] gap-2">
+                                        <div className="mobile-stack grid grid-cols-[1fr_90px_1fr] gap-2">
                                             <FieldRow label="Costo de compra">
                                                 <input
                                                     type="number"
@@ -403,6 +404,15 @@ function CostSheet({ onBack }) {
                                                     value={item.totalCost}
                                                     onChange={(event) => updateMaterial(item.id, 'totalCost', event.target.value)}
                                                 />
+                                            </FieldRow>
+                                            <FieldRow label="Moneda">
+                                                <select
+                                                    className="input-field bg-white"
+                                                    value={item.currency || mainCurrency}
+                                                    onChange={(event) => updateMaterial(item.id, 'currency', event.target.value)}
+                                                >
+                                                    {['CUP', 'USD'].map((currency) => <option key={currency}>{currency}</option>)}
+                                                </select>
                                             </FieldRow>
                                             <FieldRow label="Rinde citas">
                                                 <input
@@ -417,7 +427,7 @@ function CostSheet({ onBack }) {
                                         </div>
                                         <div className="bg-white border border-gray-100 rounded-xl p-3 flex justify-between gap-3">
                                             <span className="text-sm text-gray-500">Inversión por servicio</span>
-                                            <strong className="text-[var(--primary)]">{formatMoney(getMaterialCostPerService(item), mainCurrency)}</strong>
+                                            <strong className="text-[var(--primary)]">{formatMoney(getMaterialCostPerService(item), item.currency || mainCurrency)}</strong>
                                         </div>
                                     </div>
                                 ))}
