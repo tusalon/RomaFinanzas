@@ -7,7 +7,7 @@ function CostSheet({ onBack }) {
     const [selectedServiceId, setSelectedServiceId] = React.useState(activeServices[0] ? activeServices[0].id : '');
     const [salePrice, setSalePrice] = React.useState(activeServices[0] ? activeServices[0].price : 0);
     const [saleCurrency, setSaleCurrency] = React.useState(activeServices[0] ? activeServices[0].currency : mainCurrency);
-    const [simpleMaterialCost, setSimpleMaterialCost] = React.useState(0);
+    const [manualMaterials, setManualMaterials] = React.useState([]);
     const [simpleExtraCost, setSimpleExtraCost] = React.useState(0);
     const [durationMinutes, setDurationMinutes] = React.useState(activeServices[0] ? activeServices[0].duration : 60);
     const [hourlyValue, setHourlyValue] = React.useState(0);
@@ -37,17 +37,29 @@ function CostSheet({ onBack }) {
 
     const serviceCountForOverhead = Math.max(toNumber(monthlyServiceCount) || monthIncomeCount || 1, 1);
     const overheadPerService = includeOverhead ? monthlyBusinessLoad / serviceCountForOverhead : 0;
-    const simpleMaterial = {
-        id: 'manual_material',
-        name: 'Materiales usados',
-        cost: toNumber(simpleMaterialCost),
-        currency: mainCurrency,
-        uses: 1,
-        costPerUse: toNumber(simpleMaterialCost)
-    };
-    const materialUsages = toNumber(simpleMaterialCost) > 0
-        ? [{ materialId: 'manual_material', quantity: 1 }]
-        : [];
+    const manualMaterialCatalog = manualMaterials
+        .map((item) => {
+            const totalCost = toNumber(item.totalCost);
+            const uses = Math.max(toNumber(item.uses), 1);
+            return {
+                id: item.id,
+                name: String(item.name || '').trim() || 'Material',
+                cost: totalCost,
+                currency: mainCurrency,
+                uses,
+                costPerUse: totalCost / uses,
+                unit: 'servicio'
+            };
+        })
+        .filter((item) => item.cost > 0);
+    const materialUsages = manualMaterialCatalog.map((material) => ({
+        materialId: material.id,
+        quantity: 1,
+        name: material.name,
+        totalCost: material.cost,
+        uses: material.uses,
+        costPerService: material.costPerUse
+    }));
     const extraExpenses = toNumber(simpleExtraCost) > 0
         ? [{ id: 'manual_extra', description: 'Gastos extra', amount: toNumber(simpleExtraCost), currency: mainCurrency }]
         : [];
@@ -59,7 +71,7 @@ function CostSheet({ onBack }) {
         setSaleCurrency(selectedService.currency || mainCurrency);
         setDurationMinutes(selectedService.duration || 60);
         setMonthlyServiceCount(monthIncomeCount || 30);
-        setSimpleMaterialCost(0);
+        setManualMaterials([]);
         setSimpleExtraCost(0);
         setSavedMessage('');
         setCopyMessage('');
@@ -69,7 +81,7 @@ function CostSheet({ onBack }) {
         effectiveService,
         materialUsages,
         extraExpenses,
-        [simpleMaterial],
+        manualMaterialCatalog,
         state.config,
         {
             durationMinutes,
@@ -84,13 +96,13 @@ function CostSheet({ onBack }) {
         .slice(0, 3);
 
     const recommendedDifference = Math.max(0, result.recommendedPriceMain - result.priceMain);
-    const profitLabel = result.profitMain >= 0 ? 'Ganancia limpia' : 'Pérdida';
+    const profitLabel = result.profitMain >= 0 ? 'Ganancia limpia' : 'PÃ©rdida';
     const marginWidth = `${Math.max(0, Math.min(100, result.margin))}%`;
 
     const getMarginAlert = () => {
         if (result.margin < 0) {
             return {
-                title: 'Estás perdiendo dinero.',
+                title: 'EstÃ¡s perdiendo dinero.',
                 text: 'El precio no cubre los costos que pusiste.',
                 className: 'bg-red-50 text-red-700 border-red-100',
                 icon: 'icon-triangle-alert'
@@ -100,7 +112,7 @@ function CostSheet({ onBack }) {
         if (result.margin >= state.config.desiredMargin) {
             return {
                 title: 'Este servicio deja buena ganancia.',
-                text: 'El precio está por encima del margen que quieres lograr.',
+                text: 'El precio estÃ¡ por encima del margen que quieres lograr.',
                 className: 'bg-green-50 text-green-700 border-green-100',
                 icon: 'icon-circle-check'
             };
@@ -115,6 +127,34 @@ function CostSheet({ onBack }) {
     };
 
     const alert = getMarginAlert();
+
+    const addMaterial = () => {
+        setManualMaterials((current) => ([
+            ...current,
+            {
+                id: makeId('mat'),
+                name: '',
+                totalCost: '',
+                uses: ''
+            }
+        ]));
+    };
+
+    const updateMaterial = (id, field, value) => {
+        setManualMaterials((current) => current.map((item) => (
+            item.id === id ? { ...item, [field]: value } : item
+        )));
+    };
+
+    const removeMaterial = (id) => {
+        setManualMaterials((current) => current.filter((item) => item.id !== id));
+    };
+
+    const getMaterialCostPerService = (item) => {
+        const totalCost = toNumber(item.totalCost);
+        const uses = Math.max(toNumber(item.uses), 1);
+        return totalCost > 0 ? totalCost / uses : 0;
+    };
 
     const buildSummaryText = () => {
         if (!selectedService) return '';
@@ -142,7 +182,7 @@ function CostSheet({ onBack }) {
             setCopyMessage('Resumen copiado.');
         } catch (error) {
             console.warn('No se pudo copiar el resumen:', error);
-            setCopyMessage('No se pudo copiar automáticamente.');
+            setCopyMessage('No se pudo copiar automÃ¡ticamente.');
         }
     };
 
@@ -178,7 +218,7 @@ function CostSheet({ onBack }) {
     return (
         <div className="p-4 pb-10 space-y-5" data-name="cost-sheet" data-file="views/CostSheet.js">
             <div className="px-1">
-                <p className="text-sm text-gray-600">Calcula rápido si un servicio deja ganancia.</p>
+                <p className="text-sm text-gray-600">Calcula rÃ¡pido si un servicio deja ganancia.</p>
             </div>
 
             <div className="card p-4 space-y-3">
@@ -200,7 +240,7 @@ function CostSheet({ onBack }) {
                         <div>
                             <p className="text-xs font-bold text-[var(--primary-dark)] uppercase mb-1">2. Precio cobrado</p>
                             <h2 className="text-xl font-bold text-gray-900">{selectedService.name}</h2>
-                            <p className="text-xs text-gray-600">{selectedService.category} · {selectedService.duration} min</p>
+                            <p className="text-xs text-gray-600">{selectedService.category} - {selectedService.duration} min</p>
                         </div>
 
                         <div className="mobile-stack grid grid-cols-[1fr_110px] gap-2">
@@ -225,20 +265,73 @@ function CostSheet({ onBack }) {
 
                     <div className="card p-4 space-y-4">
                         <div>
-                            <p className="text-xs font-bold text-gray-500 uppercase mb-1">3. Costos principales</p>
-                            <h3 className="font-bold text-gray-900">¿Cuánto gastaste para hacer este servicio?</h3>
+                            <p className="text-xs font-bold text-gray-500 uppercase mb-1">3. Materiales usados</p>
+                            <h3 className="font-bold text-gray-900">Lo que gastas para hacer este servicio</h3>
                         </div>
 
                         <div>
-                            <label className="label">Materiales usados</label>
-                            <input
-                                type="number"
-                                min="0"
-                                className="input-field font-bold"
-                                placeholder="Ej. 350"
-                                value={simpleMaterialCost}
-                                onChange={(event) => setSimpleMaterialCost(event.target.value)}
-                            />
+                            <div className="flex items-center justify-between gap-3">
+                                <label className="label">Materiales usados</label>
+                                <button type="button" onClick={addMaterial} className="text-sm font-bold text-[var(--primary)] bg-pink-50 px-3 py-2 rounded-xl">
+                                    + Agregar
+                                </button>
+                            </div>
+                            {manualMaterials.length === 0 ? (
+                                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 text-sm text-gray-600">
+                                    No hay materiales agregados. Toca <strong>Agregar</strong> para poner nombre, costo total y cuantas citas rinde.
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {manualMaterials.map((item, index) => (
+                                        <div key={item.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-3 space-y-3">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <p className="text-xs font-bold text-gray-500 uppercase">Material {index + 1}</p>
+                                                <button type="button" onClick={() => removeMaterial(item.id)} className="text-xs text-red-600 font-bold px-2 py-1 bg-red-50 rounded-lg">
+                                                    Quitar
+                                                </button>
+                                            </div>
+                                            <div>
+                                                <label className="label">Nombre</label>
+                                                <input
+                                                    type="text"
+                                                    className="input-field bg-white"
+                                                    placeholder="Ej. Base, top coat, lima"
+                                                    value={item.name}
+                                                    onChange={(event) => updateMaterial(item.id, 'name', event.target.value)}
+                                                />
+                                            </div>
+                                            <div className="mobile-stack grid grid-cols-[1fr_1fr] gap-2">
+                                                <div>
+                                                    <label className="label">Costo de compra</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        className="input-field bg-white font-bold"
+                                                        placeholder="Ej. 1500"
+                                                        value={item.totalCost}
+                                                        onChange={(event) => updateMaterial(item.id, 'totalCost', event.target.value)}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="label">Rinde citas</label>
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        className="input-field bg-white font-bold"
+                                                        placeholder="Ej. 10"
+                                                        value={item.uses}
+                                                        onChange={(event) => updateMaterial(item.id, 'uses', event.target.value)}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="bg-white border border-gray-100 rounded-xl p-3 flex justify-between gap-3">
+                                                <span className="text-sm text-gray-500">Inversion por servicio</span>
+                                                <strong className="text-[var(--primary)]">{formatMoney(getMaterialCostPerService(item), mainCurrency)}</strong>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         <div>
@@ -247,7 +340,7 @@ function CostSheet({ onBack }) {
                                 type="number"
                                 min="0"
                                 className="input-field font-bold"
-                                placeholder="Ej. transporte, comisión, ayuda"
+                                placeholder="Ej. transporte, comisiÃ³n, ayuda"
                                 value={simpleExtraCost}
                                 onChange={(event) => setSimpleExtraCost(event.target.value)}
                             />
@@ -268,12 +361,12 @@ function CostSheet({ onBack }) {
                             <div>
                                 <p className="text-xs font-bold uppercase text-blue-700 mb-1">Opcional</p>
                                 <h3 className="font-bold text-blue-950">Tiempo y carga del negocio</h3>
-                                <p className="text-sm text-blue-800 mt-1">Úsalo si quieres una ficha más realista.</p>
+                                <p className="text-sm text-blue-800 mt-1">Ãšsalo si quieres una ficha mÃ¡s realista.</p>
                             </div>
 
                             <div className="mobile-stack grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="label text-blue-900">Duración real</label>
+                                    <label className="label text-blue-900">DuraciÃ³n real</label>
                                     <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
                                         <input
                                             type="number"
@@ -342,7 +435,7 @@ function CostSheet({ onBack }) {
                         <div>
                             <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider">Resultado</h3>
                             <p className="text-3xl font-black mt-2">{formatMoney(result.profitMain, mainCurrency)}</p>
-                            <p className="text-sm text-gray-300">{profitLabel} después de descontar costos.</p>
+                            <p className="text-sm text-gray-300">{profitLabel} despuÃ©s de descontar costos.</p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
@@ -359,7 +452,7 @@ function CostSheet({ onBack }) {
                                 <p className="text-lg font-bold">{formatMoney(result.recommendedPriceMain, mainCurrency)}</p>
                             </div>
                             <div className="bg-white/10 rounded-xl p-3">
-                                <p className="text-xs text-gray-400 mb-1">Subir mínimo</p>
+                                <p className="text-xs text-gray-400 mb-1">Subir mÃ­nimo</p>
                                 <p className="text-lg font-bold">{formatMoney(recommendedDifference, mainCurrency)}</p>
                             </div>
                         </div>
@@ -427,7 +520,7 @@ function CostSheet({ onBack }) {
 
                     {savedSheets.length > 0 && (
                         <div className="card p-4">
-                            <h3 className="font-bold text-gray-900 mb-3">Últimas fichas guardadas</h3>
+                            <h3 className="font-bold text-gray-900 mb-3">Ãšltimas fichas guardadas</h3>
                             <div className="space-y-3">
                                 {savedSheets.map((sheet) => (
                                     <div key={sheet.id} className="rounded-xl bg-gray-50 p-3 border border-gray-100">
