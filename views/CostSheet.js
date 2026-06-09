@@ -17,6 +17,7 @@ function CostSheet({ onBack }) {
     const [showAdvanced, setShowAdvanced] = React.useState(false);
     const [savedMessage, setSavedMessage] = React.useState('');
     const [copyMessage, setCopyMessage] = React.useState('');
+    const savedMaterials = state.materials || [];
 
     const selectedService = activeServices.find((service) => service.id === selectedServiceId);
     const effectiveService = selectedService ? {
@@ -168,13 +169,26 @@ function CostSheet({ onBack }) {
     const addMaterial = () => {
         setManualMaterials((current) => ([
             ...current,
-            { id: makeId('mat'), name: '', totalCost: '', uses: '' }
+            { id: makeId('mat'), productId: '', name: '', totalCost: '', uses: '' }
         ]));
     };
 
     const updateMaterial = (id, field, value) => {
         setManualMaterials((current) => current.map((item) => (
             item.id === id ? { ...item, [field]: value } : item
+        )));
+    };
+
+    const selectSavedMaterial = (id, productId) => {
+        const product = savedMaterials.find((item) => String(item.id) === String(productId));
+        setManualMaterials((current) => current.map((item) => (
+            item.id === id ? {
+                ...item,
+                productId,
+                name: product ? product.name : item.name,
+                totalCost: product ? product.cost : item.totalCost,
+                uses: product ? product.uses : item.uses
+            } : item
         )));
     };
 
@@ -354,6 +368,22 @@ function CostSheet({ onBack }) {
                                                 Quitar
                                             </button>
                                         </div>
+                                        {savedMaterials.length > 0 && (
+                                            <FieldRow label="Producto guardado">
+                                                <select
+                                                    className="input-field bg-white"
+                                                    value={item.productId || ''}
+                                                    onChange={(event) => selectSavedMaterial(item.id, event.target.value)}
+                                                >
+                                                    <option value="">Escribir manualmente</option>
+                                                    {savedMaterials.map((product) => (
+                                                        <option key={product.id} value={product.id}>
+                                                            {product.name} - {formatMoney(getMaterialCostPerUse(product), product.currency)} por uso
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </FieldRow>
+                                        )}
                                         <FieldRow label="Nombre">
                                             <input
                                                 type="text"

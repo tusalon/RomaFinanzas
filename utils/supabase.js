@@ -524,6 +524,25 @@ async function saveRomaFinanceExpense(negocioId, entry) {
     if (error) throw error;
 }
 
+async function saveRomaFinanceMaterial(negocioId, material) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    const uses = Math.max(toNumber(material.uses), 1);
+    const cost = toNumber(material.cost);
+    const { error } = await romaSupabase.from('roma_finanzas_materials').upsert({
+        negocio_id: negocioId,
+        id: material.id,
+        name: material.name || 'Material',
+        cost,
+        currency: material.currency || 'CUP',
+        uses,
+        cost_per_use: cost / uses,
+        unit: material.unit || 'uso',
+        stock: toNumber(material.stock),
+        updated_at: new Date().toISOString()
+    }, { onConflict: 'negocio_id,id' });
+    if (error) throw error;
+}
+
 async function saveRomaFinanceCostSheet(negocioId, sheet) {
     if (!negocioId) throw new Error('No hay negocio activo.');
     const { error } = await romaSupabase.from('roma_finanzas_fichas_costo').upsert({

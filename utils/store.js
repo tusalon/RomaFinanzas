@@ -116,6 +116,11 @@ function FinanceProvider({ children }) {
                 if (entry) await saveRomaFinanceExpense(negocioId, entry);
             }
 
+            if (item.type === 'material') {
+                const material = (stateRef.current.materials || []).find((row) => row.id === item.id);
+                if (material) await saveRomaFinanceMaterial(negocioId, material);
+            }
+
             if (item.type === 'costSheet') {
                 const sheet = (stateRef.current.costSheets || []).find((row) => row.id === item.id);
                 if (sheet) await saveRomaFinanceCostSheet(negocioId, sheet);
@@ -176,6 +181,43 @@ function FinanceProvider({ children }) {
             }
 
             return savedEntry;
+        },
+
+        async saveMaterial(material) {
+            const savedMaterial = {
+                ...material,
+                id: material.id || makeId('mat'),
+                name: String(material.name || '').trim() || 'Material',
+                cost: toNumber(material.cost),
+                currency: material.currency || stateRef.current.config.mainCurrency || 'CUP',
+                uses: Math.max(toNumber(material.uses), 1),
+                costPerUse: getMaterialCostPerUse(material),
+                unit: material.unit || 'uso',
+                stock: toNumber(material.stock)
+            };
+
+            setState((current) => {
+                const materials = current.materials || [];
+                const exists = materials.some((item) => String(item.id) === String(savedMaterial.id));
+                return {
+                    ...current,
+                    materials: exists
+                        ? materials.map((item) => String(item.id) === String(savedMaterial.id) ? savedMaterial : item)
+                        : [savedMaterial, ...materials]
+                };
+            });
+
+            if (activeBusinessIdRef.current) {
+                try {
+                    await saveRomaFinanceMaterial(activeBusinessIdRef.current, savedMaterial);
+                    setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
+                } catch (error) {
+                    console.error('No se pudo guardar el material en Supabase:', error);
+                    queueSync({ type: 'material', id: savedMaterial.id }, 'Material guardado offline. Sincroniza cuando tengas internet.');
+                }
+            }
+
+            return savedMaterial;
         },
 
         async updateConfig(config) {
