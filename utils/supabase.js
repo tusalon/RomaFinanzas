@@ -182,17 +182,33 @@ async function getRomaAuthSession() {
         return { session: null, user: null, business: null };
     }
 
-    const business = await fetchRomaBusinessById(session.businessId);
-    if (!business || !canUseRomaFinanzas(business)) {
-        window.localStorage.removeItem(ROMA_SESSION_KEY);
-        return { session: null, user: null, business: null };
-    }
+    try {
+        const business = await fetchRomaBusinessById(session.businessId);
+        if (!business || !canUseRomaFinanzas(business)) {
+            window.localStorage.removeItem(ROMA_SESSION_KEY);
+            return { session: null, user: null, business: null };
+        }
 
-    return {
-        session,
-        user: { username: business.slug || session.slug || '', email: business.email || '', businessId: business.id },
-        business: sanitizeBusinessForSession(business)
-    };
+        return {
+            session,
+            user: { username: business.slug || session.slug || '', email: business.email || '', businessId: business.id },
+            business: sanitizeBusinessForSession(business)
+        };
+    } catch (error) {
+        if (session.business) {
+            return {
+                session,
+                user: {
+                    username: session.business.slug || session.slug || '',
+                    email: session.business.email || '',
+                    businessId: session.businessId
+                },
+                business: session.business
+            };
+        }
+
+        throw error;
+    }
 }
 
 async function logoutRomaFinanzas() {

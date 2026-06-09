@@ -37,7 +37,7 @@ class ErrorBoundary extends React.Component {
 }
 
 function App() {
-  const { actions } = useFinanceApp();
+  const { state, actions } = useFinanceApp();
   const [currentView, setCurrentView] = React.useState('login');
   const [isAuthenticated, setIsAuthenticated] = React.useState(false);
   const [checkingSession, setCheckingSession] = React.useState(true);
@@ -110,7 +110,19 @@ function App() {
   try {
     return (
       <div className="mobile-shell w-full max-w-md mx-auto min-h-screen bg-[var(--bg-color)] relative shadow-2xl overflow-x-hidden" data-name="app" data-file="app.js">
-        {isAuthenticated && currentView !== 'login' && <TopBar view={currentView} onBack={() => navigate('menu')} onLogout={handleLogout} authUser={authUser} />}
+        {isAuthenticated && currentView !== 'login' && (
+          <TopBar
+            view={currentView}
+            onBack={() => navigate('menu')}
+            onLogout={handleLogout}
+            authUser={authUser}
+            syncStatus={state.syncStatus}
+            pendingCount={(state.pendingSync || []).length}
+            lastSyncAt={state.lastSyncAt}
+            isOnline={state.isOnline}
+            onSync={actions.syncNow}
+          />
+        )}
         
         <main className={`w-full ${isAuthenticated && currentView !== 'login' ? 'pt-16 pb-24' : ''}`}>
             {renderView()}

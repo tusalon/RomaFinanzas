@@ -150,6 +150,14 @@ function Dashboard() {
             currency: entry.currency
         }))
     ].slice(0, 4);
+    const pendingCount = (state.pendingSync || []).length;
+    const syncLabel = state.syncStatus === 'syncing'
+        ? 'Sincronizando...'
+        : pendingCount > 0
+            ? `${pendingCount} cambio(s) pendiente(s)`
+            : state.lastSyncAt
+                ? `Sincronizado ${new Date(state.lastSyncAt).toLocaleString('es-CU')}`
+                : 'Listo para trabajar offline';
 
     const PeriodCard = ({ period, tone }) => (
         <div className="card p-4">
@@ -196,6 +204,21 @@ function Dashboard() {
                     {state.syncError}
                 </div>
             )}
+
+            <div className={`rounded-2xl border p-4 ${pendingCount > 0 ? 'bg-amber-50 border-amber-100 text-amber-800' : state.isOnline === false ? 'bg-gray-50 border-gray-200 text-gray-700' : 'bg-green-50 border-green-100 text-green-800'}`}>
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-white/80 flex items-center justify-center">
+                            <div className={state.syncStatus === 'syncing' ? 'icon-loader-circle animate-spin' : pendingCount > 0 ? 'icon-cloud-upload' : state.isOnline === false ? 'icon-wifi-off' : 'icon-cloud-check'}></div>
+                        </div>
+                        <div>
+                            <p className="text-xs font-black uppercase tracking-wide opacity-70">Modo offline</p>
+                            <p className="font-bold">{syncLabel}</p>
+                            <p className="text-xs opacity-80">Puedes trabajar sin conexion. Usa el boton de arriba para sincronizar cuando tengas internet.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <div className={`rounded-2xl border p-4 ${diagnosis.color}`}>
                 <div className="flex gap-3">

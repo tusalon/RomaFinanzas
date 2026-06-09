@@ -1,4 +1,4 @@
-const FINANCE_STORAGE_KEY = 'roma_finanzas_state_v1';
+const FINANCE_STORAGE_KEY = 'roma_finanzas_state_v2';
 
 const FinanceContext = React.createContext(null);
 
@@ -17,18 +17,30 @@ function createInitialFinanceState() {
     }));
 
     state.costSheets = state.costSheets || [];
+    state.pendingSync = state.pendingSync || [];
+    state.lastSyncAt = state.lastSyncAt || '';
+    state.syncStatus = state.syncStatus || 'idle';
+    state.syncError = state.syncError || '';
+    state.isOnline = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
 
     return state;
 }
 
 function loadFinanceState() {
     try {
-        const saved = window.localStorage.getItem(FINANCE_STORAGE_KEY);
+        const saved = window.localStorage.getItem(FINANCE_STORAGE_KEY)
+            || window.localStorage.getItem('roma_finanzas_state_v1');
         if (!saved) return createInitialFinanceState();
 
+        const parsed = JSON.parse(saved);
         return {
             ...createInitialFinanceState(),
-            ...JSON.parse(saved)
+            ...parsed,
+            pendingSync: parsed.pendingSync || [],
+            lastSyncAt: parsed.lastSyncAt || '',
+            syncStatus: parsed.syncStatus || ((parsed.pendingSync || []).length ? 'pending' : 'idle'),
+            syncError: parsed.syncError || '',
+            isOnline: navigator.onLine !== false
         };
     } catch (error) {
         console.warn('No se pudo cargar el estado local:', error);
@@ -36,9 +48,19 @@ function loadFinanceState() {
     }
 }
 
+function mergePendingItem(pending, item) {
+    const exists = pending.some((queued) => queued.type === item.type && queued.id === item.id);
+    return exists ? pending : [...pending, { ...item, queuedAt: new Date().toISOString() }];
+}
+
 function FinanceProvider({ children }) {
     const [state, setState] = React.useState(loadFinanceState);
     const activeBusinessIdRef = React.useRef(null);
+    const stateRef = React.useRef(state);
+
+    React.useEffect(() => {
+        stateRef.current = state;
+    }, [state]);
 
     React.useEffect(() => {
         try {
@@ -47,6 +69,63 @@ function FinanceProvider({ children }) {
             console.warn('No se pudo guardar el estado local:', error);
         }
     }, [state]);
+
+    React.useEffect(() => {
+        const updateOnlineStatus = () => {
+            setState((current) => ({
+                ...current,
+                isOnline: navigator.onLine !== false
+            }));
+        };
+
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+        updateOnlineStatus();
+
+        return () => {
+            window.removeEventListener('online', updateOnlineStatus);
+            window.removeEventListener('offline', updateOnlineStatus);
+        };
+    }, []);
+
+    const queueSync = React.useCallback((item, message) => {
+        setState((current) => ({
+            ...current,
+            pendingSync: mergePendingItem(current.pendingSync || [], item),
+            syncStatus: 'pending',
+            syncError: message || 'Cambio guardado offline. Sincroniza cuando tengas internet.',
+            isOnline: navigator.onLine !== false
+        }));
+    }, []);
+
+    const pushPendingChanges = React.useCallback(async () => {
+        const negocioId = activeBusinessIdRef.current;
+        if (!negocioId) throw new Error('No hay negocio activo para sincronizar.');
+        if (navigator.onLine === false) throw new Error('No hay conexion a internet.');
+
+        const pending = stateRef.current.pendingSync || [];
+
+        for (const item of pending) {
+            if (item.type === 'income') {
+                const entry = (stateRef.current.incomeEntries || []).find((row) => row.id === item.id);
+                if (entry) await saveRomaFinanceIncome(negocioId, entry);
+            }
+
+            if (item.type === 'expense') {
+                const entry = (stateRef.current.expenseEntries || []).find((row) => row.id === item.id);
+                if (entry) await saveRomaFinanceExpense(negocioId, entry);
+            }
+
+            if (item.type === 'costSheet') {
+                const sheet = (stateRef.current.costSheets || []).find((row) => row.id === item.id);
+                if (sheet) await saveRomaFinanceCostSheet(negocioId, sheet);
+            }
+
+            if (item.type === 'config') {
+                await saveRomaFinanceConfig(negocioId, stateRef.current.config);
+            }
+        }
+    }, []);
 
     const actions = React.useMemo(() => ({
         async addIncome(entry) {
@@ -64,15 +143,16 @@ function FinanceProvider({ children }) {
             if (activeBusinessIdRef.current) {
                 try {
                     await saveRomaFinanceIncome(activeBusinessIdRef.current, savedEntry);
-                    setState((current) => ({ ...current, syncError: '' }));
+                    setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
                 } catch (error) {
                     console.error('No se pudo guardar el ingreso en Supabase:', error);
-                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar el último ingreso.' }));
+                    queueSync({ type: 'income', id: savedEntry.id }, 'Ingreso guardado offline. Sincroniza cuando tengas internet.');
                 }
             }
 
             return savedEntry;
         },
+
         async addExpense(entry) {
             const savedEntry = {
                 ...entry,
@@ -88,21 +168,22 @@ function FinanceProvider({ children }) {
             if (activeBusinessIdRef.current) {
                 try {
                     await saveRomaFinanceExpense(activeBusinessIdRef.current, savedEntry);
-                    setState((current) => ({ ...current, syncError: '' }));
+                    setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
                 } catch (error) {
                     console.error('No se pudo guardar el gasto en Supabase:', error);
-                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar el último gasto.' }));
+                    queueSync({ type: 'expense', id: savedEntry.id }, 'Gasto guardado offline. Sincroniza cuando tengas internet.');
                 }
             }
 
             return savedEntry;
         },
+
         async updateConfig(config) {
             const nextConfig = {
-                ...state.config,
+                ...stateRef.current.config,
                 ...config,
                 rates: {
-                    ...state.config.rates,
+                    ...stateRef.current.config.rates,
                     ...(config.rates || {})
                 }
             };
@@ -115,15 +196,18 @@ function FinanceProvider({ children }) {
             if (activeBusinessIdRef.current) {
                 try {
                     await saveRomaFinanceConfig(activeBusinessIdRef.current, nextConfig);
-                    setState((current) => ({ ...current, syncError: '' }));
+                    setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
                 } catch (error) {
-                    console.error('No se pudo guardar la configuración en Supabase:', error);
-                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar la configuración.' }));
+                    console.error('No se pudo guardar la configuracion en Supabase:', error);
+                    queueSync({ type: 'config', id: 'config' }, 'Configuracion guardada offline. Sincroniza cuando tengas internet.');
                 }
             }
         },
+
         async setBusiness(business) {
             if (!business) return;
+
+            activeBusinessIdRef.current = business.id;
 
             setState((current) => ({
                 ...current,
@@ -132,33 +216,39 @@ function FinanceProvider({ children }) {
                 business: {
                     ...current.business,
                     id: business.id,
-                    name: business.nombre || current.business.name,
+                    name: business.nombre || business.name || current.business.name,
                     email: business.email || current.business.email,
-                    logoUrl: business.logo_url || current.business.logoUrl,
-                    accessStatus: business.estado_finanzas || current.business.accessStatus || 'activo',
-                    financeAccess: business.acceso_finanzas !== false
+                    logoUrl: business.logo_url || business.logoUrl || current.business.logoUrl,
+                    accessStatus: business.estado_finanzas || business.accessStatus || current.business.accessStatus || 'activo',
+                    financeAccess: business.acceso_finanzas !== false && business.financeAccess !== false
                 }
             }));
 
-            activeBusinessIdRef.current = business.id;
-
             try {
+                await pushPendingChanges();
                 const financeState = await loadRomaFinanceData(business);
                 setState((current) => ({
                     ...current,
                     ...financeState,
+                    pendingSync: [],
                     loadingFinanceData: false,
-                    syncError: ''
+                    syncError: '',
+                    syncStatus: 'synced',
+                    isOnline: true,
+                    lastSyncAt: new Date().toISOString()
                 }));
             } catch (error) {
                 console.error('No se pudieron cargar los datos financieros:', error);
                 setState((current) => ({
                     ...current,
                     loadingFinanceData: false,
-                    syncError: 'No se pudieron cargar los datos financieros de Supabase.'
+                    isOnline: navigator.onLine !== false,
+                    syncStatus: (current.pendingSync || []).length > 0 ? 'pending' : 'offline',
+                    syncError: 'Trabajando con datos guardados en este telefono. Sincroniza cuando tengas internet.'
                 }));
             }
         },
+
         async saveCostSheet(sheet) {
             const savedSheet = {
                 ...sheet,
@@ -174,16 +264,50 @@ function FinanceProvider({ children }) {
             if (activeBusinessIdRef.current) {
                 try {
                     await saveRomaFinanceCostSheet(activeBusinessIdRef.current, savedSheet);
-                    setState((current) => ({ ...current, syncError: '' }));
+                    setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
                 } catch (error) {
                     console.error('No se pudo guardar la ficha en Supabase:', error);
-                    setState((current) => ({ ...current, syncError: 'No se pudo sincronizar la última ficha de costo.' }));
+                    queueSync({ type: 'costSheet', id: savedSheet.id }, 'Ficha guardada offline. Sincroniza cuando tengas internet.');
                 }
             }
 
             return savedSheet;
+        },
+
+        async syncNow() {
+            setState((current) => ({
+                ...current,
+                syncStatus: 'syncing',
+                syncError: ''
+            }));
+
+            try {
+                await pushPendingChanges();
+
+                const business = stateRef.current.business;
+                const freshState = business?.id ? await loadRomaFinanceData(business) : {};
+
+                setState((current) => ({
+                    ...current,
+                    ...freshState,
+                    pendingSync: [],
+                    loadingFinanceData: false,
+                    syncStatus: 'synced',
+                    syncError: '',
+                    isOnline: true,
+                    lastSyncAt: new Date().toISOString()
+                }));
+            } catch (error) {
+                console.error('No se pudo sincronizar:', error);
+                setState((current) => ({
+                    ...current,
+                    syncStatus: (current.pendingSync || []).length > 0 ? 'pending' : 'offline',
+                    isOnline: navigator.onLine !== false,
+                    syncError: error.message || 'No se pudo sincronizar. Intenta otra vez cuando haya internet.'
+                }));
+            }
         }
-    }), [state.config]);
+    }), [queueSync, pushPendingChanges]);
 
     const value = React.useMemo(() => ({ state, actions }), [state, actions]);
 
