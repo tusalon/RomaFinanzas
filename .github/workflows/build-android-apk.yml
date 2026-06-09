@@ -1,0 +1,69 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "android/**"
+      - "components/**"
+      - "icons/**"
+      - "scripts/**"
+      - "utils/**"
+      - "vendor/**"
+      - "views/**"
+      - "*.html"
+      - "*.js"
+      - "capacitor.config.json"
+      - "manifest.json"
+      - "package.json"
+      - "package-lock.json"
+
+jobs:
+  build-debug-apk:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync Capacitor Android
+        run: npm run android:sync
+
+      - name: Build debug APK
+        working-directory: android
+        run: .\gradlew.bat assembleDebug
+
+      - name: Rename APK
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path apk-output
+          $apk = Get-ChildItem -Path android/app/build/outputs/apk -Recurse -Filter "*.apk" | Select-Object -First 1
+          if (-not $apk) {
+            Get-ChildItem -Path android/app/build -Recurse | Select-Object FullName
+            throw "No se encontro ningun APK generado"
+          }
+          Write-Host "APK encontrado: $($apk.FullName)"
+          Copy-Item $apk.FullName apk-output/roma-finanzas-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: roma-finanzas-debug-apk
+          path: apk-output/roma-finanzas-debug.apk

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Roma Finanzas</string>
+    <string name="title_activity_main">Roma Finanzas</string>
+    <string name="package_name">com.tusalon.romafinanzas</string>
+    <string name="custom_url_scheme">com.tusalon.romafinanzas</string>
+</resources>

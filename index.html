@@ -2,13 +2,22 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#ec4899">
-    <meta name="description" content="Roma Finanzas - Herramienta de gestión financiera para salones de belleza del ecosistema RservasRoma.">
+    <meta name="description" content="Roma Finanzas - Herramienta de gesti&oacute;n financiera para salones de belleza del ecosistema RservasRoma.">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Roma Finanzas">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="format-detection" content="telephone=no">
     <title>Roma Finanzas</title>
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
-    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512x512.png">
+    <link rel="apple-touch-icon" href="icons/icon-180x180.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="icons/icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="167x167" href="icons/icon-167x167.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180x180.png">
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
@@ -43,6 +52,11 @@
             @apply bg-[var(--bg-color)] text-[var(--text-main)] font-sans antialiased pb-20;
             -webkit-tap-highlight-color: transparent;
             overflow-x: hidden;
+            min-height: 100vh;
+            min-height: 100dvh;
+            padding-top: env(safe-area-inset-top);
+            padding-left: env(safe-area-inset-left);
+            padding-right: env(safe-area-inset-right);
         }
     }
 
@@ -64,6 +78,9 @@
         }
         .pb-safe {
             padding-bottom: env(safe-area-inset-bottom);
+        }
+        .pt-safe {
+            padding-top: env(safe-area-inset-top);
         }
         .mobile-shell {
             min-height: 100dvh;

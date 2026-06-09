@@ -1,4 +1,4 @@
-const ROMA_FINANZAS_CACHE = 'roma-finanzas-v5';
+const ROMA_FINANZAS_CACHE = 'roma-finanzas-v6';
 
 const LOCAL_ASSETS = [
     './',
@@ -30,6 +30,8 @@ const LOCAL_ASSETS = [
     './vendor/lucide.woff2',
     './vendor/lucide.ttf',
     './icons/icon-192x192.png',
+    './icons/icon-167x167.png',
+    './icons/icon-180x180.png',
     './icons/icon-512x512.png'
 ];
 
