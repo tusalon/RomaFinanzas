@@ -518,8 +518,7 @@ async function saveRomaFinanceExpense(negocioId, entry) {
         amount: toNumber(entry.amount),
         currency: entry.currency || 'CUP',
         type: entry.type || 'cotidiano',
-        useful_life_months: entry.type === 'herramienta' ? Math.max(toNumber(entry.usefulLifeMonths), 1) : null,
-        depreciation_note: entry.depreciationNote || null
+        useful_life_months: entry.type === 'herramienta' ? Math.max(toNumber(entry.usefulLifeMonths), 1) : null
     }, { onConflict: 'negocio_id,id' });
     if (error) throw error;
 }
