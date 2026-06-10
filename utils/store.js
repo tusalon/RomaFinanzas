@@ -1,4 +1,5 @@
 const FINANCE_STORAGE_KEY = 'roma_finanzas_state_v2';
+const FINANCE_BUSINESS_STORAGE_PREFIX = 'roma_finanzas_state_v2_business_';
 
 const FinanceContext = React.createContext(null);
 
@@ -48,6 +49,76 @@ function loadFinanceState() {
     }
 }
 
+function getBusinessStorageKey(businessId) {
+    return `${FINANCE_BUSINESS_STORAGE_PREFIX}${businessId}`;
+}
+
+function hydrateFinanceState(savedState) {
+    const parsed = savedState || {};
+    return {
+        ...createInitialFinanceState(),
+        ...parsed,
+        pendingSync: parsed.pendingSync || [],
+        lastSyncAt: parsed.lastSyncAt || '',
+        syncStatus: parsed.syncStatus || ((parsed.pendingSync || []).length ? 'pending' : 'idle'),
+        syncError: parsed.syncError || '',
+        isOnline: navigator.onLine !== false
+    };
+}
+
+function getBusinessInfoForState(business, fallbackBusiness = {}) {
+    return {
+        ...fallbackBusiness,
+        id: business.id,
+        name: business.nombre || business.name || fallbackBusiness.name || 'Roma Beauty Studio',
+        email: business.email || fallbackBusiness.email || '',
+        logoUrl: business.logo_url || business.logoUrl || fallbackBusiness.logoUrl || '',
+        accessStatus: business.estado_finanzas || business.accessStatus || fallbackBusiness.accessStatus || 'activo',
+        financeAccess: business.acceso_finanzas !== false && business.financeAccess !== false
+    };
+}
+
+function loadBusinessFinanceState(business) {
+    const cleanState = hydrateFinanceState({});
+    if (!business?.id) return cleanState;
+
+    try {
+        const specificSaved = window.localStorage.getItem(getBusinessStorageKey(business.id));
+        if (specificSaved) {
+            const parsed = JSON.parse(specificSaved);
+            return {
+                ...hydrateFinanceState(parsed),
+                business: getBusinessInfoForState(business, parsed.business)
+            };
+        }
+
+        const legacySaved = window.localStorage.getItem(FINANCE_STORAGE_KEY)
+            || window.localStorage.getItem('roma_finanzas_state_v1');
+        if (legacySaved) {
+            const parsed = JSON.parse(legacySaved);
+            if (String(parsed.business?.id || '') === String(business.id)) {
+                return {
+                    ...hydrateFinanceState(parsed),
+                    business: getBusinessInfoForState(business, parsed.business)
+                };
+            }
+        }
+    } catch (error) {
+        console.warn('No se pudo cargar el estado local del negocio:', error);
+    }
+
+    return {
+        ...cleanState,
+        business: getBusinessInfoForState(business, cleanState.business),
+        services: [],
+        materials: [],
+        incomeEntries: [],
+        expenseEntries: [],
+        costSheets: [],
+        pendingSync: []
+    };
+}
+
 function mergePendingItem(pending, item) {
     const exists = pending.some((queued) => queued.type === item.type && queued.id === item.id);
     return exists ? pending : [...pending, { ...item, queuedAt: new Date().toISOString() }];
@@ -64,7 +135,14 @@ function FinanceProvider({ children }) {
 
     React.useEffect(() => {
         try {
-            window.localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify(state));
+            if (state.business?.id) {
+                window.localStorage.setItem(getBusinessStorageKey(state.business.id), JSON.stringify(state));
+                window.localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify({
+                    business: state.business,
+                    lastSyncAt: state.lastSyncAt,
+                    syncStatus: state.syncStatus
+                }));
+            }
         } catch (error) {
             console.warn('No se pudo guardar el estado local:', error);
         }
@@ -250,20 +328,14 @@ function FinanceProvider({ children }) {
             if (!business) return;
 
             activeBusinessIdRef.current = business.id;
+            const localBusinessState = loadBusinessFinanceState(business);
+            stateRef.current = localBusinessState;
 
             setState((current) => ({
-                ...current,
+                ...localBusinessState,
                 loadingFinanceData: true,
                 syncError: '',
-                business: {
-                    ...current.business,
-                    id: business.id,
-                    name: business.nombre || business.name || current.business.name,
-                    email: business.email || current.business.email,
-                    logoUrl: business.logo_url || business.logoUrl || current.business.logoUrl,
-                    accessStatus: business.estado_finanzas || business.accessStatus || current.business.accessStatus || 'activo',
-                    financeAccess: business.acceso_finanzas !== false && business.financeAccess !== false
-                }
+                business: getBusinessInfoForState(business, localBusinessState.business)
             }));
 
             try {
