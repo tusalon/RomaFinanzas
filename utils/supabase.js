@@ -307,6 +307,53 @@ function mapFinanceExpenseFromDb(row) {
     };
 }
 
+function getRservasRomaMonthlyExpenseId(date = new Date()) {
+    const monthKey = date.toISOString().slice(0, 7).replace('-', '_');
+    return `gasto_rservasroma_${monthKey}`;
+}
+
+function buildRservasRomaMonthlyExpense(date = new Date()) {
+    return {
+        id: getRservasRomaMonthlyExpenseId(date),
+        date: date.toISOString().slice(0, 10),
+        category: 'RservasRoma',
+        description: 'RservasRoma',
+        amount: 1000,
+        currency: 'CUP',
+        type: 'fijo',
+        usefulLifeMonths: 0,
+        depreciationNote: ''
+    };
+}
+
+async function ensureRservasRomaMonthlyExpense(business, expenseRows = []) {
+    const defaultExpense = buildRservasRomaMonthlyExpense();
+    const exists = (expenseRows || []).some((row) => String(row.id) === String(defaultExpense.id));
+
+    if (exists) return expenseRows;
+
+    try {
+        await saveRomaFinanceExpense(business.id, defaultExpense);
+    } catch (error) {
+        console.warn('No se pudo crear el gasto fijo de RservasRoma en Supabase:', error);
+    }
+
+    return [
+        {
+            negocio_id: business.id,
+            id: defaultExpense.id,
+            date: defaultExpense.date,
+            category: defaultExpense.category,
+            description: defaultExpense.description,
+            amount: defaultExpense.amount,
+            currency: defaultExpense.currency,
+            type: defaultExpense.type,
+            useful_life_months: null
+        },
+        ...(expenseRows || [])
+    ];
+}
+
 function mapFinanceSheetFromDb(row) {
     return {
         id: row.id,
@@ -466,6 +513,8 @@ async function loadRomaFinanceData(business) {
         incomeById.set(String(entry.id), entry);
     });
 
+    const expensesWithRservasRoma = await ensureRservasRomaMonthlyExpense(business, expensesResponse.data || []);
+
     return {
         ...seed,
         config,
@@ -474,7 +523,7 @@ async function loadRomaFinanceData(business) {
             ? (seeded.materials || materialsResponse.data || []).map(mapFinanceMaterialFromDb)
             : seed.materials,
         incomeEntries: Array.from(incomeById.values()),
-        expenseEntries: (expensesResponse.data || []).map(mapFinanceExpenseFromDb),
+        expenseEntries: expensesWithRservasRoma.map(mapFinanceExpenseFromDb),
         costSheets: (sheetsResponse.data || []).map(mapFinanceSheetFromDb)
     };
 }
