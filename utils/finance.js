@@ -41,14 +41,23 @@ function toNumber(value) {
         .trim()
         .replace(/\s+/g, '');
 
+    if (!rawValue) return 0;
+
     const lastComma = rawValue.lastIndexOf(',');
     const lastDot = rawValue.lastIndexOf('.');
-    const decimalIndex = Math.max(lastComma, lastDot);
-    const cleanValue = decimalIndex >= 0
-        ? `${rawValue.slice(0, decimalIndex).replace(/[.,]/g, '')}.${rawValue.slice(decimalIndex + 1).replace(/[.,]/g, '')}`
-        : rawValue;
+    const separators = (rawValue.match(/[.,]/g) || []).length;
+    let cleanValue = rawValue;
 
-    if (!cleanValue) return 0;
+    if (separators === 1) {
+        const separatorIndex = Math.max(lastComma, lastDot);
+        const before = rawValue.slice(0, separatorIndex);
+        const after = rawValue.slice(separatorIndex + 1);
+        const isLikelyThousands = before.length > 0 && after.length === 3 && before !== '0';
+        cleanValue = isLikelyThousands ? `${before}${after}` : `${before}.${after}`;
+    } else if (separators > 1) {
+        const decimalIndex = Math.max(lastComma, lastDot);
+        cleanValue = `${rawValue.slice(0, decimalIndex).replace(/[.,]/g, '')}.${rawValue.slice(decimalIndex + 1).replace(/[.,]/g, '')}`;
+    }
 
     const numberValue = Number(cleanValue);
     return Number.isFinite(numberValue) ? numberValue : 0;

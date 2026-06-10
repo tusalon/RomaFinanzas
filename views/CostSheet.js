@@ -421,7 +421,7 @@ function CostSheet({ onBack }) {
                                                     value={item.currency || mainCurrency}
                                                     onChange={(event) => updateMaterial(item.id, 'currency', event.target.value)}
                                                 >
-                                                    {['CUP', 'USD'].map((currency) => <option key={currency}>{currency}</option>)}
+                                                    {SUPPORTED_CURRENCIES.map((currency) => <option key={currency}>{currency}</option>)}
                                                 </select>
                                             </FieldRow>
                                             <FieldRow label="Rinde citas">
