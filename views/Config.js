@@ -12,7 +12,7 @@ function Config({ onBack }) {
             ...current,
             rates: {
                 ...current.rates,
-                [currency]: toNumber(value)
+                [currency]: value
             }
         }));
     };
@@ -21,7 +21,7 @@ function Config({ onBack }) {
         await actions.updateConfig({
             mainCurrency: form.mainCurrency,
             desiredMargin: toNumber(form.desiredMargin),
-            rates: form.rates
+            rates: Object.fromEntries(Object.entries(form.rates || {}).map(([currency, value]) => [currency, toNumber(value)]))
         });
         setSavedMessage('Configuración guardada para este negocio.');
     };
@@ -54,7 +54,8 @@ function Config({ onBack }) {
                         </div>
                         <div className="mobile-rate-input flex items-center gap-2 w-32">
                             <input
-                                type="number"
+                                type="text"
+                                inputMode="decimal"
                                 value={form.rates[currency]}
                                 onChange={(event) => updateRate(currency, event.target.value)}
                                 className="input-field !py-2 !px-3 text-right font-bold bg-white"

@@ -105,7 +105,8 @@ function Expenses() {
                 <div className="grid grid-cols-2 gap-4">
                     <div>
                         <label className="label">Monto pagado</label>
-                        <input type="number" className="input-field font-bold text-lg" placeholder="0.00" value={form.amount} onChange={(event) => updateField('amount', event.target.value)} />
+                        <input type="text"
+                                inputMode="decimal" className="input-field font-bold text-lg" placeholder="0.00" value={form.amount} onChange={(event) => updateField('amount', event.target.value)} />
                     </div>
                     <div>
                         <label className="label">Moneda</label>
@@ -121,7 +122,8 @@ function Expenses() {
                             <label className="label text-blue-900">Vida útil estimada</label>
                             <div className="grid grid-cols-[1fr_auto] gap-3 items-center">
                                 <input
-                                    type="number"
+                                    type="text"
+                                inputMode="decimal"
                                     min="1"
                                     className="input-field bg-white"
                                     value={form.usefulLifeMonths}

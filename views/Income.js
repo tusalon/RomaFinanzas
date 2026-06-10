@@ -57,7 +57,8 @@ function Income() {
                 <div className="grid grid-cols-2 gap-4">
                     <div>
                         <label className="label">Precio cobrado</label>
-                        <input type="number" className="input-field font-bold text-lg" placeholder="0.00" value={form.amount} onChange={(event) => updateField('amount', event.target.value)} />
+                        <input type="text"
+                                inputMode="decimal" className="input-field font-bold text-lg" placeholder="0.00" value={form.amount} onChange={(event) => updateField('amount', event.target.value)} />
                     </div>
                     <div>
                         <label className="label">Moneda</label>

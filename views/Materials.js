@@ -120,7 +120,8 @@ function Materials({ onBack }) {
                         <div>
                             <label className="label">Costo de compra</label>
                             <input
-                                type="number"
+                                type="text"
+                                inputMode="decimal"
                                 min="0"
                                 className="input-field font-bold"
                                 placeholder="Ej. 1500"
@@ -144,7 +145,8 @@ function Materials({ onBack }) {
                         <div>
                             <label className="label">Rinde</label>
                             <input
-                                type="number"
+                                type="text"
+                                inputMode="decimal"
                                 min="1"
                                 className="input-field font-bold"
                                 placeholder="Ej. 20"
@@ -167,7 +169,8 @@ function Materials({ onBack }) {
                     <div>
                         <label className="label">Stock actual opcional</label>
                         <input
-                            type="number"
+                            type="text"
+                                inputMode="decimal"
                             min="0"
                             className="input-field"
                             placeholder="Ej. 2"

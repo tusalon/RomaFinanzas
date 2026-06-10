@@ -324,7 +324,8 @@ function CostSheet({ onBack }) {
 
                         <div className="mobile-stack grid grid-cols-[1fr_110px] gap-2">
                             <input
-                                type="number"
+                                type="text"
+                                inputMode="decimal"
                                 min="0"
                                 className="input-field bg-white text-lg font-bold"
                                 value={salePrice}
@@ -397,7 +398,8 @@ function CostSheet({ onBack }) {
                                         <div className="mobile-stack grid grid-cols-[1fr_90px_1fr] gap-2">
                                             <FieldRow label="Costo de compra">
                                                 <input
-                                                    type="number"
+                                                    type="text"
+                                inputMode="decimal"
                                                     min="0"
                                                     className="input-field bg-white font-bold"
                                                     placeholder="Ej. 1500"
@@ -416,7 +418,8 @@ function CostSheet({ onBack }) {
                                             </FieldRow>
                                             <FieldRow label="Rinde citas">
                                                 <input
-                                                    type="number"
+                                                    type="text"
+                                inputMode="decimal"
                                                     min="1"
                                                     className="input-field bg-white font-bold"
                                                     placeholder="Ej. 10"
@@ -473,7 +476,8 @@ function CostSheet({ onBack }) {
                                         <div className="mobile-stack grid grid-cols-[1fr_110px] gap-2">
                                             <FieldRow label="Monto">
                                                 <input
-                                                    type="number"
+                                                    type="text"
+                                inputMode="decimal"
                                                     min="0"
                                                     className="input-field bg-white font-bold"
                                                     placeholder="Ej. 500"
@@ -536,7 +540,8 @@ function CostSheet({ onBack }) {
                                 <div className="bg-white rounded-xl p-3 border border-blue-100 space-y-2">
                                     <label className="text-xs text-blue-700 font-semibold">Servicios estimados al mes</label>
                                     <input
-                                        type="number"
+                                        type="text"
+                                inputMode="decimal"
                                         min="1"
                                         className="input-field !py-2 bg-white font-bold"
                                         value={monthlyServiceCount}
@@ -570,7 +575,8 @@ function CostSheet({ onBack }) {
                                 <FieldRow label="Duración real">
                                     <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
                                         <input
-                                            type="number"
+                                            type="text"
+                                inputMode="decimal"
                                             min="1"
                                             className="input-field bg-white font-bold"
                                             value={durationMinutes}
@@ -581,7 +587,8 @@ function CostSheet({ onBack }) {
                                 </FieldRow>
                                 <FieldRow label="Valor de tu hora">
                                     <input
-                                        type="number"
+                                        type="text"
+                                inputMode="decimal"
                                         min="0"
                                         className="input-field bg-white font-bold"
                                         value={hourlyValue}

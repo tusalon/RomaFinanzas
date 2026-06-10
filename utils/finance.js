@@ -33,7 +33,24 @@ function makeId(prefix) {
 }
 
 function toNumber(value) {
-    const numberValue = Number(value);
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : 0;
+    }
+
+    const rawValue = String(value ?? '')
+        .trim()
+        .replace(/\s+/g, '');
+
+    const lastComma = rawValue.lastIndexOf(',');
+    const lastDot = rawValue.lastIndexOf('.');
+    const decimalIndex = Math.max(lastComma, lastDot);
+    const cleanValue = decimalIndex >= 0
+        ? `${rawValue.slice(0, decimalIndex).replace(/[.,]/g, '')}.${rawValue.slice(decimalIndex + 1).replace(/[.,]/g, '')}`
+        : rawValue;
+
+    if (!cleanValue) return 0;
+
+    const numberValue = Number(cleanValue);
     return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
