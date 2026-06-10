@@ -12,6 +12,7 @@ function Expenses() {
 
     const selectedType = getExpenseTypeMeta(form.type);
     const categories = getExpenseCategories(form.type);
+    const expenses = state.expenseEntries || [];
     const monthlyDepreciation = form.type === 'herramienta'
         ? getExpenseMonthlyDepreciation(form, state.config)
         : 0;
@@ -41,6 +42,14 @@ function Expenses() {
                 : ''
         });
         setSavedMessage('Gasto guardado para este negocio.');
+    };
+
+    const deleteExpense = async (expense) => {
+        const confirmed = window.confirm(`Eliminar el gasto "${expense.description || expense.category || 'Gasto'}"?`);
+        if (!confirmed) return;
+
+        await actions.deleteExpense(expense.id);
+        setSavedMessage('Gasto eliminado.');
     };
 
     return (
@@ -148,6 +157,38 @@ function Expenses() {
                     Registrar gasto
                 </button>
             </form>
+
+            {expenses.length > 0 && (
+                <div className="card p-4 mt-6">
+                    <h3 className="font-bold text-gray-900 mb-3">Gastos registrados</h3>
+                    <div className="space-y-3">
+                        {expenses.slice(0, 20).map((expense) => (
+                            <div key={expense.id} className="rounded-xl bg-gray-50 border border-gray-100 p-3">
+                                <div className="flex justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <p className="font-bold text-gray-900 truncate">{expense.description || expense.category || 'Gasto'}</p>
+                                        <p className="text-xs text-gray-500">{expense.date} - {getExpenseTypeMeta(expense.type).label}</p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                        <p className="font-black text-red-700">{formatMoney(expense.amount, expense.currency || state.config.mainCurrency)}</p>
+                                        {String(expense.id || '').startsWith('gasto_rservasroma_') ? (
+                                            <p className="text-xs font-semibold text-gray-400 mt-2">Fijo del sistema</p>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={() => deleteExpense(expense)}
+                                                className="text-xs font-bold text-red-700 bg-red-50 px-2 py-1 rounded-lg mt-2"
+                                            >
+                                                Eliminar
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

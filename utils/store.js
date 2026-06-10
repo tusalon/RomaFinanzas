@@ -120,8 +120,14 @@ function loadBusinessFinanceState(business) {
 }
 
 function mergePendingItem(pending, item) {
-    const exists = pending.some((queued) => queued.type === item.type && queued.id === item.id);
-    return exists ? pending : [...pending, { ...item, queuedAt: new Date().toISOString() }];
+    const withoutOpposite = (pending || []).filter((queued) => {
+        if (queued.id !== item.id) return true;
+        if (item.type === 'deleteExpense' && queued.type === 'expense') return false;
+        if (item.type === 'deleteCostSheet' && queued.type === 'costSheet') return false;
+        return true;
+    });
+    const exists = withoutOpposite.some((queued) => queued.type === item.type && queued.id === item.id);
+    return exists ? withoutOpposite : [...withoutOpposite, { ...item, queuedAt: new Date().toISOString() }];
 }
 
 function FinanceProvider({ children }) {
@@ -194,6 +200,10 @@ function FinanceProvider({ children }) {
                 if (entry) await saveRomaFinanceExpense(negocioId, entry);
             }
 
+            if (item.type === 'deleteExpense') {
+                await deleteRomaFinanceExpense(negocioId, item.id);
+            }
+
             if (item.type === 'material') {
                 const material = (stateRef.current.materials || []).find((row) => row.id === item.id);
                 if (material) await saveRomaFinanceMaterial(negocioId, material);
@@ -202,6 +212,10 @@ function FinanceProvider({ children }) {
             if (item.type === 'costSheet') {
                 const sheet = (stateRef.current.costSheets || []).find((row) => row.id === item.id);
                 if (sheet) await saveRomaFinanceCostSheet(negocioId, sheet);
+            }
+
+            if (item.type === 'deleteCostSheet') {
+                await deleteRomaFinanceCostSheet(negocioId, item.id);
             }
 
             if (item.type === 'config') {
@@ -259,6 +273,24 @@ function FinanceProvider({ children }) {
             }
 
             return savedEntry;
+        },
+
+        async deleteExpense(id) {
+            setState((current) => ({
+                ...current,
+                expenseEntries: (current.expenseEntries || []).filter((entry) => String(entry.id) !== String(id)),
+                pendingSync: (current.pendingSync || []).filter((item) => !(item.type === 'expense' && String(item.id) === String(id)))
+            }));
+
+            if (activeBusinessIdRef.current) {
+                try {
+                    await deleteRomaFinanceExpense(activeBusinessIdRef.current, id);
+                    setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
+                } catch (error) {
+                    console.error('No se pudo eliminar el gasto en Supabase:', error);
+                    queueSync({ type: 'deleteExpense', id }, 'Gasto eliminado offline. Sincroniza cuando tengas internet.');
+                }
+            }
         },
 
         async saveMaterial(material) {
@@ -386,6 +418,24 @@ function FinanceProvider({ children }) {
             }
 
             return savedSheet;
+        },
+
+        async deleteCostSheet(id) {
+            setState((current) => ({
+                ...current,
+                costSheets: (current.costSheets || []).filter((sheet) => String(sheet.id) !== String(id)),
+                pendingSync: (current.pendingSync || []).filter((item) => !(item.type === 'costSheet' && String(item.id) === String(id)))
+            }));
+
+            if (activeBusinessIdRef.current) {
+                try {
+                    await deleteRomaFinanceCostSheet(activeBusinessIdRef.current, id);
+                    setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
+                } catch (error) {
+                    console.error('No se pudo eliminar la ficha en Supabase:', error);
+                    queueSync({ type: 'deleteCostSheet', id }, 'Ficha eliminada offline. Sincroniza cuando tengas internet.');
+                }
+            }
         },
 
         async syncNow() {

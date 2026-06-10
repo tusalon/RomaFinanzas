@@ -572,6 +572,16 @@ async function saveRomaFinanceExpense(negocioId, entry) {
     if (error) throw error;
 }
 
+async function deleteRomaFinanceExpense(negocioId, id) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    const { error } = await romaSupabase
+        .from('roma_finanzas_gastos')
+        .delete()
+        .eq('negocio_id', negocioId)
+        .eq('id', id);
+    if (error) throw error;
+}
+
 async function saveRomaFinanceMaterial(negocioId, material) {
     if (!negocioId) throw new Error('No hay negocio activo.');
     const uses = Math.max(toNumber(material.uses), 1);
@@ -605,5 +615,15 @@ async function saveRomaFinanceCostSheet(negocioId, sheet) {
         totals: sheet.totals || {},
         created_at: sheet.createdAt || new Date().toISOString()
     }, { onConflict: 'negocio_id,id' });
+    if (error) throw error;
+}
+
+async function deleteRomaFinanceCostSheet(negocioId, id) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    const { error } = await romaSupabase
+        .from('roma_finanzas_fichas_costo')
+        .delete()
+        .eq('negocio_id', negocioId)
+        .eq('id', id);
     if (error) throw error;
 }

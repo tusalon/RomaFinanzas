@@ -287,6 +287,14 @@ function CostSheet({ onBack }) {
         setSavedMessage('Ficha guardada para este negocio.');
     };
 
+    const deleteSheet = async (sheet) => {
+        const confirmed = window.confirm(`Eliminar la ficha de costo de "${sheet.serviceName || selectedService?.name || 'este servicio'}"?`);
+        if (!confirmed) return;
+
+        await actions.deleteCostSheet(sheet.id);
+        setSavedMessage('Ficha eliminada.');
+    };
+
     const FieldRow = ({ label, children }) => (
         <div>
             <label className="label">{label}</label>
@@ -712,6 +720,13 @@ function CostSheet({ onBack }) {
                                                 <p className="text-xs text-gray-500">{toNumber(sheet.totals.margin).toFixed(1)}%</p>
                                             </div>
                                         </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => deleteSheet(sheet)}
+                                            className="mt-3 w-full text-sm font-bold text-red-700 bg-red-50 px-3 py-2 rounded-xl"
+                                        >
+                                            Eliminar ficha
+                                        </button>
                                     </div>
                                 ))}
                             </div>
