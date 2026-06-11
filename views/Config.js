@@ -39,12 +39,23 @@ function Config({ onBack }) {
                     </div>
                 </div>
 
-                <select className="input-field font-semibold" value={form.mainCurrency} onChange={(event) => setForm((current) => ({ ...current, mainCurrency: event.target.value }))}>
-                    <option value="CUP">CUP (Peso Cubano)</option>
-                </select>
+                <div className="grid grid-cols-2 gap-3">
+                    {['CUP', 'USD'].map((currency) => (
+                        <button
+                            key={currency}
+                            type="button"
+                            onClick={() => setForm((current) => ({ ...current, mainCurrency: currency }))}
+                            className={`rounded-2xl border p-4 text-left transition-colors ${form.mainCurrency === currency ? 'border-[var(--primary)] bg-[var(--primary-light)] text-[var(--primary-dark)]' : 'border-gray-200 bg-white text-gray-700'}`}
+                        >
+                            <span className="block text-lg font-black">{currency}</span>
+                            <span className="block text-xs mt-1">{currency === 'CUP' ? 'Totales en pesos cubanos' : 'Totales en dólares'}</span>
+                        </button>
+                    ))}
+                </div>
             </div>
 
             <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 px-1">Tasas de cambio actuales</h3>
+            <p className="text-xs text-gray-500 mb-3 px-1">Estas tasas se guardan como valor en CUP. Ejemplo: 1 USD = 350 CUP.</p>
             <div className="card p-0 overflow-hidden mb-8">
                 {['USD', 'MLC', 'EUR'].map((currency, index) => (
                     <div key={currency} className={`mobile-rate-row p-4 flex items-center justify-between ${index < 2 ? 'border-b border-gray-100' : ''} ${index === 1 ? 'bg-gray-50/50' : ''}`}>

@@ -66,12 +66,31 @@ function toNumber(value) {
 function convertToMainCurrency(amount, currency, config) {
     const value = toNumber(amount);
     const mainCurrency = config.mainCurrency || 'CUP';
+    const sourceCurrency = currency || mainCurrency;
+    const rates = config.rates || {};
 
-    if (currency === mainCurrency) return value;
-    if (mainCurrency !== 'CUP') return value;
+    if (sourceCurrency === mainCurrency) return value;
 
-    const rate = toNumber(config.rates && config.rates[currency]);
-    return rate > 0 ? value * rate : value;
+    if (mainCurrency === 'CUP') {
+        const rate = toNumber(rates[sourceCurrency]);
+        return rate > 0 ? value * rate : value;
+    }
+
+    if (mainCurrency === 'USD') {
+        const usdRate = toNumber(rates.USD);
+        if (usdRate <= 0) return value;
+        const valueInCup = sourceCurrency === 'CUP'
+            ? value
+            : value * (toNumber(rates[sourceCurrency]) || usdRate);
+        return valueInCup / usdRate;
+    }
+
+    const mainRate = toNumber(rates[mainCurrency]);
+    if (mainRate <= 0) return value;
+    const valueInCup = sourceCurrency === 'CUP'
+        ? value
+        : value * (toNumber(rates[sourceCurrency]) || mainRate);
+    return valueInCup / mainRate;
 }
 
 function formatMoney(amount, currency) {
