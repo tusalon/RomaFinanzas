@@ -150,6 +150,39 @@ function mergePendingItem(pending, item) {
     return exists ? withoutOpposite : [...withoutOpposite, { ...item, queuedAt: new Date().toISOString() }];
 }
 
+function preserveLocalUnsyncedExpenses(freshState, localState) {
+    const remoteExpenses = freshState.expenseEntries || [];
+    const localExpenses = (localState.expenseEntries || []).map(normalizeFinanceExpenseEntry);
+    const remoteIds = new Set(remoteExpenses.map((entry) => String(entry.id)));
+    const pendingDeletes = new Set((localState.pendingSync || [])
+        .filter((item) => item.type === 'deleteExpense')
+        .map((item) => String(item.id)));
+
+    const localOnlyExpenses = localExpenses.filter((entry) => {
+        if (!entry?.id) return false;
+        if (remoteIds.has(String(entry.id))) return false;
+        if (pendingDeletes.has(String(entry.id))) return false;
+        return true;
+    });
+
+    if (localOnlyExpenses.length === 0) {
+        return {
+            ...freshState,
+            pendingSync: []
+        };
+    }
+
+    const pendingSync = localOnlyExpenses.reduce((pending, entry) => (
+        mergePendingItem(pending, { type: 'expense', id: entry.id })
+    ), []);
+
+    return {
+        ...freshState,
+        expenseEntries: [...localOnlyExpenses, ...remoteExpenses],
+        pendingSync
+    };
+}
+
 function FinanceProvider({ children }) {
     const [state, setState] = React.useState(loadFinanceState);
     const activeBusinessIdRef = React.useRef(null);
@@ -435,13 +468,15 @@ function FinanceProvider({ children }) {
             try {
                 await pushPendingChanges();
                 const financeState = await loadRomaFinanceData(business);
+                const mergedFinanceState = preserveLocalUnsyncedExpenses(financeState, localBusinessState);
                 setState((current) => ({
                     ...current,
-                    ...financeState,
-                    pendingSync: [],
+                    ...mergedFinanceState,
                     loadingFinanceData: false,
-                    syncError: '',
-                    syncStatus: 'synced',
+                    syncError: (mergedFinanceState.pendingSync || []).length
+                        ? 'Se conservaron gastos locales pendientes. Toca sincronizar para subirlos a la nube.'
+                        : '',
+                    syncStatus: (mergedFinanceState.pendingSync || []).length ? 'pending' : 'synced',
                     isOnline: true,
                     lastSyncAt: new Date().toISOString()
                 }));
@@ -512,14 +547,16 @@ function FinanceProvider({ children }) {
 
                 const business = stateRef.current.business;
                 const freshState = business?.id ? await loadRomaFinanceData(business) : {};
+                const mergedFreshState = preserveLocalUnsyncedExpenses(freshState, stateRef.current);
 
                 setState((current) => ({
                     ...current,
-                    ...freshState,
-                    pendingSync: [],
+                    ...mergedFreshState,
                     loadingFinanceData: false,
-                    syncStatus: 'synced',
-                    syncError: '',
+                    syncStatus: (mergedFreshState.pendingSync || []).length ? 'pending' : 'synced',
+                    syncError: (mergedFreshState.pendingSync || []).length
+                        ? 'Se conservaron gastos locales pendientes. Toca sincronizar otra vez para subirlos.'
+                        : '',
                     isOnline: true,
                     lastSyncAt: new Date().toISOString()
                 }));
