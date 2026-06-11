@@ -595,9 +595,17 @@ async function saveRomaFinanceIncome(negocioId, entry) {
     if (error) throw error;
 }
 
+function isMissingSchemaColumnError(error, columns = []) {
+    const message = String(error?.message || '').toLowerCase();
+    const details = String(error?.details || '').toLowerCase();
+    const hint = String(error?.hint || '').toLowerCase();
+    const combined = `${message} ${details} ${hint}`;
+    return error?.code === 'PGRST204' && columns.some((column) => combined.includes(column.toLowerCase()));
+}
+
 async function saveRomaFinanceExpense(negocioId, entry) {
     if (!negocioId) throw new Error('No hay negocio activo.');
-    const { error } = await romaSupabase.from('roma_finanzas_gastos').upsert({
+    const baseExpenseRow = {
         negocio_id: negocioId,
         id: entry.id,
         date: entry.date || getTodayKey(),
@@ -605,10 +613,31 @@ async function saveRomaFinanceExpense(negocioId, entry) {
         description: entry.description || null,
         amount: toNumber(entry.amount),
         currency: entry.currency || 'CUP',
-        type: entry.type || 'cotidiano',
+        type: entry.type || 'cotidiano'
+    };
+    const expenseRow = {
+        ...baseExpenseRow,
         useful_life_months: entry.type === 'herramienta' ? Math.max(toNumber(entry.usefulLifeMonths), 1) : null
-    }, { onConflict: 'negocio_id,id' });
-    if (error) throw error;
+    };
+    if (entry.depreciationNote) {
+        expenseRow.depreciation_note = entry.depreciationNote;
+    }
+
+    const { error } = await romaSupabase
+        .from('roma_finanzas_gastos')
+        .upsert(expenseRow, { onConflict: 'negocio_id,id' });
+
+    if (!error) return;
+
+    if (isMissingSchemaColumnError(error, ['useful_life_months', 'depreciation_note'])) {
+        const fallback = await romaSupabase
+            .from('roma_finanzas_gastos')
+            .upsert(baseExpenseRow, { onConflict: 'negocio_id,id' });
+        if (fallback.error) throw fallback.error;
+        return;
+    }
+
+    throw error;
 }
 
 async function deleteRomaFinanceExpense(negocioId, id) {
