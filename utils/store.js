@@ -3,6 +3,24 @@ const FINANCE_BUSINESS_STORAGE_PREFIX = 'roma_finanzas_state_v2_business_';
 
 const FinanceContext = React.createContext(null);
 
+function normalizeFinanceExpenseEntry(entry) {
+    const isRservasRomaExpense = String(entry?.id || '').startsWith('gasto_rservasroma_')
+        || String(entry?.category || '').toLowerCase() === 'rservasroma'
+        || String(entry?.description || '').toLowerCase() === 'rservasroma';
+
+    if (!isRservasRomaExpense) return entry;
+
+    return {
+        ...entry,
+        category: 'RservasRoma',
+        description: 'RservasRoma',
+        amount: 1000,
+        currency: 'CUP',
+        type: 'fijo',
+        usefulLifeMonths: 0
+    };
+}
+
 function createInitialFinanceState() {
     const state = JSON.parse(JSON.stringify(INITIAL_DATA));
     const today = getTodayKey();
@@ -12,7 +30,7 @@ function createInitialFinanceState() {
         date: entry.date || today
     }));
 
-    state.expenseEntries = (state.expenseEntries || []).map((entry) => ({
+    state.expenseEntries = (state.expenseEntries || []).map((entry) => normalizeFinanceExpenseEntry({
         ...entry,
         date: entry.date || today
     }));
@@ -37,6 +55,7 @@ function loadFinanceState() {
         return {
             ...createInitialFinanceState(),
             ...parsed,
+            expenseEntries: (parsed.expenseEntries || []).map(normalizeFinanceExpenseEntry),
             pendingSync: parsed.pendingSync || [],
             lastSyncAt: parsed.lastSyncAt || '',
             syncStatus: parsed.syncStatus || ((parsed.pendingSync || []).length ? 'pending' : 'idle'),
@@ -58,6 +77,7 @@ function hydrateFinanceState(savedState) {
     return {
         ...createInitialFinanceState(),
         ...parsed,
+        expenseEntries: (parsed.expenseEntries || []).map(normalizeFinanceExpenseEntry),
         pendingSync: parsed.pendingSync || [],
         lastSyncAt: parsed.lastSyncAt || '',
         syncStatus: parsed.syncStatus || ((parsed.pendingSync || []).length ? 'pending' : 'idle'),

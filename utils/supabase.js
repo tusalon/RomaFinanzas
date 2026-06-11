@@ -298,14 +298,18 @@ function mapBookingToFinanceIncome(row, services = [], config = {}) {
 }
 
 function mapFinanceExpenseFromDb(row) {
+    const isRservasRomaExpense = String(row.id || '').startsWith('gasto_rservasroma_')
+        || String(row.category || '').toLowerCase() === 'rservasroma'
+        || String(row.description || '').toLowerCase() === 'rservasroma';
+
     return {
         id: row.id,
         date: row.date,
-        category: row.category || 'Otro',
-        description: row.description || '',
-        amount: toNumber(row.amount),
-        currency: row.currency || 'CUP',
-        type: row.type || 'cotidiano',
+        category: isRservasRomaExpense ? 'RservasRoma' : (row.category || 'Otro'),
+        description: isRservasRomaExpense ? 'RservasRoma' : (row.description || ''),
+        amount: isRservasRomaExpense ? 1000 : toNumber(row.amount),
+        currency: isRservasRomaExpense ? 'CUP' : (row.currency || 'CUP'),
+        type: isRservasRomaExpense ? 'fijo' : (row.type || 'cotidiano'),
         usefulLifeMonths: toNumber(row.useful_life_months),
         depreciationNote: row.depreciation_note || ''
     };
@@ -334,7 +338,36 @@ async function ensureRservasRomaMonthlyExpense(business, expenseRows = []) {
     const defaultExpense = buildRservasRomaMonthlyExpense();
     const exists = (expenseRows || []).some((row) => String(row.id) === String(defaultExpense.id));
 
-    if (exists) return expenseRows;
+    if (exists) {
+        const normalizedRows = (expenseRows || []).map((row) => (
+            String(row.id) === String(defaultExpense.id)
+                ? {
+                    ...row,
+                    category: defaultExpense.category,
+                    description: defaultExpense.description,
+                    amount: defaultExpense.amount,
+                    currency: defaultExpense.currency,
+                    type: defaultExpense.type,
+                    useful_life_months: null
+                }
+                : row
+        ));
+
+        const existingRow = (expenseRows || []).find((row) => String(row.id) === String(defaultExpense.id));
+        if (
+            toNumber(existingRow?.amount) !== defaultExpense.amount
+            || String(existingRow?.currency || '').toUpperCase() !== defaultExpense.currency
+            || String(existingRow?.type || '') !== defaultExpense.type
+        ) {
+            try {
+                await saveRomaFinanceExpense(business.id, defaultExpense);
+            } catch (error) {
+                console.warn('No se pudo normalizar el gasto fijo de RservasRoma en Supabase:', error);
+            }
+        }
+
+        return normalizedRows;
+    }
 
     try {
         await saveRomaFinanceExpense(business.id, defaultExpense);

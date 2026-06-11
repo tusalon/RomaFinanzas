@@ -45,11 +45,14 @@ function CostSheet({ onBack }) {
             .filter((entry) => ['fijo', 'herramienta'].includes(normalizeExpenseType(entry.type)))
             .map((entry) => {
                 const monthlyAmount = getExpenseImpact(entry, state.config, 'month', now);
+                const isRservasRomaExpense = String(entry.id || '').startsWith('gasto_rservasroma_')
+                    || String(entry.description || '').toLowerCase() === 'rservasroma'
+                    || String(entry.category || '').toLowerCase() === 'rservasroma';
                 return {
                     id: entry.id,
                     label: entry.description || entry.category || 'Gasto fijo',
-                    amount: monthlyAmount,
-                    currency: mainCurrency,
+                    amount: isRservasRomaExpense ? 1000 : monthlyAmount,
+                    currency: isRservasRomaExpense ? 'CUP' : mainCurrency,
                     source: normalizeExpenseType(entry.type) === 'herramienta' ? 'Herramienta depreciada' : 'Gasto fijo mensual'
                 };
             })
