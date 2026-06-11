@@ -1,3 +1,12 @@
+function CostSheetFieldRow({ label, children }) {
+    return (
+        <div>
+            <label className="label">{label}</label>
+            {children}
+        </div>
+    );
+}
+
 function CostSheet({ onBack }) {
     const { state, actions } = useFinanceApp();
     const activeServices = state.services.filter((service) => service.active);
@@ -295,13 +304,6 @@ function CostSheet({ onBack }) {
         setSavedMessage('Ficha eliminada.');
     };
 
-    const FieldRow = ({ label, children }) => (
-        <div>
-            <label className="label">{label}</label>
-            {children}
-        </div>
-    );
-
     return (
         <div className="p-4 pb-10 space-y-5" data-name="cost-sheet" data-file="views/CostSheet.js">
             <div className="px-1">
@@ -379,7 +381,7 @@ function CostSheet({ onBack }) {
                                             </button>
                                         </div>
                                         {savedMaterials.length > 0 && (
-                                            <FieldRow label="Producto guardado">
+                                            <CostSheetFieldRow label="Producto guardado">
                                                 <select
                                                     className="input-field bg-white"
                                                     value={item.productId || ''}
@@ -392,9 +394,9 @@ function CostSheet({ onBack }) {
                                                         </option>
                                                     ))}
                                                 </select>
-                                            </FieldRow>
+                                            </CostSheetFieldRow>
                                         )}
-                                        <FieldRow label="Nombre">
+                                        <CostSheetFieldRow label="Nombre">
                                             <input
                                                 type="text"
                                                 className="input-field bg-white"
@@ -402,9 +404,9 @@ function CostSheet({ onBack }) {
                                                 value={item.name}
                                                 onChange={(event) => updateMaterial(item.id, 'name', event.target.value)}
                                             />
-                                        </FieldRow>
+                                        </CostSheetFieldRow>
                                         <div className="mobile-stack grid grid-cols-[1fr_90px_1fr] gap-2">
-                                            <FieldRow label="Costo de compra">
+                                            <CostSheetFieldRow label="Costo de compra">
                                                 <input
                                                     type="text"
                                 inputMode="decimal"
@@ -414,8 +416,8 @@ function CostSheet({ onBack }) {
                                                     value={item.totalCost}
                                                     onChange={(event) => updateMaterial(item.id, 'totalCost', event.target.value)}
                                                 />
-                                            </FieldRow>
-                                            <FieldRow label="Moneda">
+                                            </CostSheetFieldRow>
+                                            <CostSheetFieldRow label="Moneda">
                                                 <select
                                                     className="input-field bg-white"
                                                     value={item.currency || mainCurrency}
@@ -423,8 +425,8 @@ function CostSheet({ onBack }) {
                                                 >
                                                     {SUPPORTED_CURRENCIES.map((currency) => <option key={currency}>{currency}</option>)}
                                                 </select>
-                                            </FieldRow>
-                                            <FieldRow label="Rinde citas">
+                                            </CostSheetFieldRow>
+                                            <CostSheetFieldRow label="Rinde citas">
                                                 <input
                                                     type="text"
                                 inputMode="decimal"
@@ -434,7 +436,7 @@ function CostSheet({ onBack }) {
                                                     value={item.uses}
                                                     onChange={(event) => updateMaterial(item.id, 'uses', event.target.value)}
                                                 />
-                                            </FieldRow>
+                                            </CostSheetFieldRow>
                                         </div>
                                         <div className="bg-white border border-gray-100 rounded-xl p-3 flex justify-between gap-3">
                                             <span className="text-sm text-gray-500">Inversión por servicio</span>
@@ -472,7 +474,7 @@ function CostSheet({ onBack }) {
                                                 Quitar
                                             </button>
                                         </div>
-                                        <FieldRow label="Descripción">
+                                        <CostSheetFieldRow label="Descripción">
                                             <input
                                                 type="text"
                                                 className="input-field bg-white"
@@ -480,9 +482,9 @@ function CostSheet({ onBack }) {
                                                 value={item.description}
                                                 onChange={(event) => updateExtra(item.id, 'description', event.target.value)}
                                             />
-                                        </FieldRow>
+                                        </CostSheetFieldRow>
                                         <div className="mobile-stack grid grid-cols-[1fr_110px] gap-2">
-                                            <FieldRow label="Monto">
+                                            <CostSheetFieldRow label="Monto">
                                                 <input
                                                     type="text"
                                 inputMode="decimal"
@@ -492,8 +494,8 @@ function CostSheet({ onBack }) {
                                                     value={item.amount}
                                                     onChange={(event) => updateExtra(item.id, 'amount', event.target.value)}
                                                 />
-                                            </FieldRow>
-                                            <FieldRow label="Moneda">
+                                            </CostSheetFieldRow>
+                                            <CostSheetFieldRow label="Moneda">
                                                 <select
                                                     className="input-field bg-white"
                                                     value={item.currency}
@@ -501,7 +503,7 @@ function CostSheet({ onBack }) {
                                                 >
                                                     {SUPPORTED_CURRENCIES.map((currency) => <option key={currency}>{currency}</option>)}
                                                 </select>
-                                            </FieldRow>
+                                            </CostSheetFieldRow>
                                         </div>
                                     </div>
                                 ))}
@@ -580,7 +582,7 @@ function CostSheet({ onBack }) {
                             </div>
 
                             <div className="mobile-stack grid grid-cols-2 gap-3">
-                                <FieldRow label="Duración real">
+                                <CostSheetFieldRow label="Duración real">
                                     <div className="grid grid-cols-[1fr_auto] gap-2 items-center">
                                         <input
                                             type="text"
@@ -592,8 +594,8 @@ function CostSheet({ onBack }) {
                                         />
                                         <span className="text-sm font-semibold text-blue-900">min</span>
                                     </div>
-                                </FieldRow>
-                                <FieldRow label="Valor de tu hora">
+                                </CostSheetFieldRow>
+                                <CostSheetFieldRow label="Valor de tu hora">
                                     <input
                                         type="text"
                                 inputMode="decimal"
@@ -602,7 +604,7 @@ function CostSheet({ onBack }) {
                                         value={hourlyValue}
                                         onChange={(event) => setHourlyValue(event.target.value)}
                                     />
-                                </FieldRow>
+                                </CostSheetFieldRow>
                             </div>
                         </div>
                     )}
