@@ -228,14 +228,20 @@ function mapFinanceServiceFromDb(row) {
     };
 }
 
-function mapBusinessServiceToFinance(row) {
+function mapBusinessServiceToFinance(row, config = {}) {
+    const mainCurrency = config.mainCurrency || 'CUP';
+    const sourceCurrency = 'CUP';
+    const price = mainCurrency === sourceCurrency
+        ? toNumber(row.precio)
+        : convertToMainCurrency(row.precio, sourceCurrency, config);
+
     return {
         id: `servicio_${row.id}`,
         name: row.nombre || 'Servicio',
         category: row.categoria || 'General',
-        price: toNumber(row.precio),
+        price,
         duration: toNumber(row.duracion) || 60,
-        currency: 'CUP',
+        currency: mainCurrency,
         active: row.activo !== false,
         defaultMaterials: []
     };
@@ -276,10 +282,14 @@ function normalizeFinanceText(value) {
         .toLowerCase();
 }
 
-function mapBookingToFinanceIncome(row, services = []) {
+function mapBookingToFinanceIncome(row, services = [], config = {}) {
     const serviceName = String(row.servicio || '').trim();
     const matchedService = (services || []).find((service) => normalizeFinanceText(service.name) === normalizeFinanceText(serviceName));
-    const amount = toNumber(row.monto_cobrado) || toNumber(row.precio_final) || toNumber(row.precio_original) || toNumber(matchedService?.price);
+    const bookingAmount = toNumber(row.monto_cobrado) || toNumber(row.precio_final) || toNumber(row.precio_original);
+    const currency = matchedService?.currency || config.mainCurrency || 'CUP';
+    const amount = bookingAmount > 0
+        ? convertToMainCurrency(bookingAmount, 'CUP', { ...config, mainCurrency: currency })
+        : toNumber(matchedService?.price);
 
     return {
         id: `reserva_${row.id}`,
@@ -287,7 +297,7 @@ function mapBookingToFinanceIncome(row, services = []) {
         serviceId: matchedService?.id || '',
         client: row.cliente_nombre || '',
         amount,
-        currency: matchedService?.currency || 'CUP',
+        currency,
         paymentMethod: row.monto_cobrado ? 'Cobro real' : 'Reserva completada',
         note: `Cita ${row.estado || ''}`.trim()
     };
@@ -400,7 +410,7 @@ async function seedRomaFinanceDataIfNeeded(business, services, materials, config
         if (businessServicesResponse.error) throw businessServicesResponse.error;
 
         seededServices = (businessServicesResponse.data || [])
-            .map(mapBusinessServiceToFinance)
+            .map((row) => mapBusinessServiceToFinance(row, config))
             .map((service) => ({
                 negocio_id: business.id,
                 id: service.id,
@@ -422,7 +432,7 @@ async function seedRomaFinanceDataIfNeeded(business, services, materials, config
     return { services: seededServices, materials: seededMaterials };
 }
 
-async function syncRomaFinanceServicesFromBusiness(business, currentServices = []) {
+async function syncRomaFinanceServicesFromBusiness(business, currentServices = [], config = {}) {
     const businessServicesResponse = await romaSupabase
         .from('servicios')
         .select('id,nombre,categoria,precio,duracion,activo')
@@ -433,7 +443,7 @@ async function syncRomaFinanceServicesFromBusiness(business, currentServices = [
     if (businessServicesResponse.error) throw businessServicesResponse.error;
 
     const existingById = new Map((currentServices || []).map(service => [String(service.id), service]));
-    const realServices = (businessServicesResponse.data || []).map(mapBusinessServiceToFinance);
+    const realServices = (businessServicesResponse.data || []).map((row) => mapBusinessServiceToFinance(row, config));
     const serviceRows = realServices.map((service) => {
         const existing = existingById.get(String(service.id));
         return {
@@ -470,18 +480,6 @@ async function loadRomaFinanceData(business) {
     const tableError = responses.find((response) => response.error);
     if (tableError) throw tableError.error;
 
-    const seeded = await seedRomaFinanceDataIfNeeded(
-        business,
-        servicesResponse.data,
-        materialsResponse.data,
-        configResponse.data
-    );
-
-    const syncedServiceRows = await syncRomaFinanceServicesFromBusiness(
-        business,
-        seeded.services || servicesResponse.data || []
-    );
-
     const seed = buildFinanceSeedState(business);
     const config = configResponse.data ? {
         mainCurrency: configResponse.data.main_currency || 'CUP',
@@ -491,6 +489,20 @@ async function loadRomaFinanceData(business) {
             ...(configResponse.data.rates || {})
         }
     } : seed.config;
+
+    const seeded = await seedRomaFinanceDataIfNeeded(
+        business,
+        servicesResponse.data,
+        materialsResponse.data,
+        config
+    );
+
+    const syncedServiceRows = await syncRomaFinanceServicesFromBusiness(
+        business,
+        seeded.services || servicesResponse.data || [],
+        config
+    );
+
     const financeServices = (syncedServiceRows || []).length > 0
         ? syncedServiceRows.map(mapFinanceServiceFromDb)
         : seed.services;
@@ -505,7 +517,7 @@ async function loadRomaFinanceData(business) {
     if (bookingIncomeResponse.error) throw bookingIncomeResponse.error;
 
     const bookingIncomeEntries = (bookingIncomeResponse.data || [])
-        .map((booking) => mapBookingToFinanceIncome(booking, financeServices))
+        .map((booking) => mapBookingToFinanceIncome(booking, financeServices, config))
         .filter((entry) => entry.amount > 0);
     const manualIncomeEntries = (incomeResponse.data || []).map(mapFinanceIncomeFromDb);
     const incomeById = new Map();
