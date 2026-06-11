@@ -1,4 +1,4 @@
-const ROMA_FINANZAS_CACHE = 'roma-finanzas-v18';
+const ROMA_FINANZAS_CACHE = 'roma-finanzas-v19';
 
 const LOCAL_ASSETS = [
     './',

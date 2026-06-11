@@ -183,6 +183,20 @@ function preserveLocalUnsyncedExpenses(freshState, localState) {
     };
 }
 
+async function pushLocalExpensesSnapshot(negocioId, expenses = []) {
+    if (!negocioId) return;
+
+    const uniqueExpenses = new Map();
+    (expenses || [])
+        .map(normalizeFinanceExpenseEntry)
+        .filter((entry) => entry?.id)
+        .forEach((entry) => uniqueExpenses.set(String(entry.id), entry));
+
+    for (const expense of uniqueExpenses.values()) {
+        await saveRomaFinanceExpense(negocioId, expense);
+    }
+}
+
 function FinanceProvider({ children }) {
     const [state, setState] = React.useState(loadFinanceState);
     const activeBusinessIdRef = React.useRef(null);
@@ -467,6 +481,7 @@ function FinanceProvider({ children }) {
 
             try {
                 await pushPendingChanges();
+                await pushLocalExpensesSnapshot(business.id, localBusinessState.expenseEntries || []);
                 const financeState = await loadRomaFinanceData(business);
                 const mergedFinanceState = preserveLocalUnsyncedExpenses(financeState, localBusinessState);
                 setState((current) => ({
@@ -546,6 +561,9 @@ function FinanceProvider({ children }) {
                 await pushPendingChanges();
 
                 const business = stateRef.current.business;
+                if (business?.id) {
+                    await pushLocalExpensesSnapshot(business.id, stateRef.current.expenseEntries || []);
+                }
                 const freshState = business?.id ? await loadRomaFinanceData(business) : {};
                 const mergedFreshState = preserveLocalUnsyncedExpenses(freshState, stateRef.current);
 
