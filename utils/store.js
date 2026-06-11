@@ -209,6 +209,11 @@ function FinanceProvider({ children }) {
                 if (material) await saveRomaFinanceMaterial(negocioId, material);
             }
 
+            if (item.type === 'service') {
+                const service = (stateRef.current.services || []).find((row) => row.id === item.id);
+                if (service) await saveRomaFinanceService(negocioId, service);
+            }
+
             if (item.type === 'costSheet') {
                 const sheet = (stateRef.current.costSheets || []).find((row) => row.id === item.id);
                 if (sheet) await saveRomaFinanceCostSheet(negocioId, sheet);
@@ -328,6 +333,43 @@ function FinanceProvider({ children }) {
             }
 
             return savedMaterial;
+        },
+
+        async saveService(service) {
+            const savedService = {
+                ...service,
+                id: service.id || makeId('srv'),
+                name: String(service.name || '').trim() || 'Servicio',
+                category: service.category || 'General',
+                price: toNumber(service.price),
+                duration: Math.max(toNumber(service.duration), 1),
+                currency: service.currency || stateRef.current.config.mainCurrency || 'CUP',
+                active: service.active !== false,
+                defaultMaterials: service.defaultMaterials || []
+            };
+
+            setState((current) => {
+                const services = current.services || [];
+                const exists = services.some((item) => String(item.id) === String(savedService.id));
+                return {
+                    ...current,
+                    services: exists
+                        ? services.map((item) => String(item.id) === String(savedService.id) ? savedService : item)
+                        : [savedService, ...services]
+                };
+            });
+
+            if (activeBusinessIdRef.current) {
+                try {
+                    await saveRomaFinanceService(activeBusinessIdRef.current, savedService);
+                    setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
+                } catch (error) {
+                    console.error('No se pudo guardar el servicio en Supabase:', error);
+                    queueSync({ type: 'service', id: savedService.id }, 'Servicio guardado offline. Sincroniza cuando tengas internet.');
+                }
+            }
+
+            return savedService;
         },
 
         async updateConfig(config) {

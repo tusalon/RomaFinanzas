@@ -230,16 +230,12 @@ function mapFinanceServiceFromDb(row) {
 
 function mapBusinessServiceToFinance(row, config = {}) {
     const mainCurrency = config.mainCurrency || 'CUP';
-    const sourceCurrency = 'CUP';
-    const price = mainCurrency === sourceCurrency
-        ? toNumber(row.precio)
-        : convertToMainCurrency(row.precio, sourceCurrency, config);
 
     return {
         id: `servicio_${row.id}`,
         name: row.nombre || 'Servicio',
         category: row.categoria || 'General',
-        price,
+        price: toNumber(row.precio),
         duration: toNumber(row.duracion) || 60,
         currency: mainCurrency,
         active: row.activo !== false,
@@ -287,9 +283,7 @@ function mapBookingToFinanceIncome(row, services = [], config = {}) {
     const matchedService = (services || []).find((service) => normalizeFinanceText(service.name) === normalizeFinanceText(serviceName));
     const bookingAmount = toNumber(row.monto_cobrado) || toNumber(row.precio_final) || toNumber(row.precio_original);
     const currency = matchedService?.currency || config.mainCurrency || 'CUP';
-    const amount = bookingAmount > 0
-        ? convertToMainCurrency(bookingAmount, 'CUP', { ...config, mainCurrency: currency })
-        : toNumber(matchedService?.price);
+    const amount = bookingAmount > 0 ? bookingAmount : toNumber(matchedService?.price);
 
     return {
         id: `reserva_${row.id}`,
@@ -451,9 +445,9 @@ async function syncRomaFinanceServicesFromBusiness(business, currentServices = [
             id: service.id,
             name: service.name,
             category: service.category,
-            price: service.price,
+            price: existing ? toNumber(existing.price) : service.price,
             duration: service.duration,
-            currency: service.currency,
+            currency: existing?.currency || service.currency,
             active: service.active !== false,
             default_materials: existing?.default_materials || existing?.defaultMaterials || [],
             updated_at: new Date().toISOString()
@@ -608,6 +602,23 @@ async function saveRomaFinanceMaterial(negocioId, material) {
         cost_per_use: cost / uses,
         unit: material.unit || 'uso',
         stock: toNumber(material.stock),
+        updated_at: new Date().toISOString()
+    }, { onConflict: 'negocio_id,id' });
+    if (error) throw error;
+}
+
+async function saveRomaFinanceService(negocioId, service) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    const { error } = await romaSupabase.from('roma_finanzas_services').upsert({
+        negocio_id: negocioId,
+        id: service.id,
+        name: service.name || 'Servicio',
+        category: service.category || 'General',
+        price: toNumber(service.price),
+        duration: Math.max(toNumber(service.duration), 1),
+        currency: service.currency || 'CUP',
+        active: service.active !== false,
+        default_materials: service.defaultMaterials || [],
         updated_at: new Date().toISOString()
     }, { onConflict: 'negocio_id,id' });
     if (error) throw error;
