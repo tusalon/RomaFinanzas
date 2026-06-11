@@ -66,10 +66,10 @@ jobs:
             throw "No se encontro ningun APK generado"
           }
           Write-Host "APK encontrado: $($apk.FullName)"
-          Copy-Item $apk.FullName apk-output/roma-finanzas-v1.0.10-android6.apk
+          Copy-Item $apk.FullName apk-output/roma-finanzas-v1.0.11-android7.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: roma-finanzas-v1.0.10-android6-apk
-          path: apk-output/roma-finanzas-v1.0.10-android6.apk
+          name: roma-finanzas-v1.0.11-android7-apk
+          path: apk-output/roma-finanzas-v1.0.11-android7.apk
