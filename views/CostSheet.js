@@ -26,7 +26,9 @@ function CostSheet({ onBack }) {
     const [showAdvanced, setShowAdvanced] = React.useState(false);
     const [savedMessage, setSavedMessage] = React.useState('');
     const [copyMessage, setCopyMessage] = React.useState('');
+    const [editingSheetId, setEditingSheetId] = React.useState('');
     const savedMaterials = state.materials || [];
+    const registeredExpenses = state.expenseEntries || [];
 
     const selectedService = activeServices.find((service) => service.id === selectedServiceId);
     const effectiveService = selectedService ? {
@@ -123,6 +125,7 @@ function CostSheet({ onBack }) {
         setManualMaterials([]);
         setManualExtras([]);
         setSelectedFixedCosts(['rservasroma']);
+        setEditingSheetId('');
         setSavedMessage('');
         setCopyMessage('');
     }, [selectedServiceId]);
@@ -218,7 +221,7 @@ function CostSheet({ onBack }) {
     const addExtra = () => {
         setManualExtras((current) => ([
             ...current,
-            { id: makeId('extra'), description: '', amount: '', currency: mainCurrency }
+            { id: makeId('extra'), expenseId: '', description: '', amount: '', currency: mainCurrency }
         ]));
     };
 
@@ -226,6 +229,30 @@ function CostSheet({ onBack }) {
         setManualExtras((current) => current.map((item) => (
             item.id === id ? { ...item, [field]: value } : item
         )));
+    };
+
+    const selectRegisteredExpense = (id, expenseId) => {
+        const expense = registeredExpenses.find((item) => String(item.id) === String(expenseId));
+        setManualExtras((current) => current.map((item) => {
+            if (item.id !== id) return item;
+            if (!expense) return { ...item, expenseId };
+
+            const type = normalizeExpenseType(expense.type);
+            const isMonthlyExpense = ['fijo', 'herramienta'].includes(type);
+            const amount = isMonthlyExpense
+                ? getExpenseImpact(expense, state.config, 'month', now) / serviceCountForOverhead
+                : toNumber(expense.amount);
+
+            return {
+                ...item,
+                expenseId,
+                description: isMonthlyExpense
+                    ? `${expense.description || expense.category || 'Gasto'} repartido`
+                    : (expense.description || expense.category || 'Gasto'),
+                amount,
+                currency: isMonthlyExpense ? mainCurrency : (expense.currency || mainCurrency)
+            };
+        }));
     };
 
     const removeExtra = (id) => {
@@ -271,6 +298,7 @@ function CostSheet({ onBack }) {
     const saveSheet = async () => {
         if (!selectedService) return;
         await actions.saveCostSheet({
+            id: editingSheetId || undefined,
             serviceId: selectedService.id,
             serviceName: selectedService.name,
             materialUsages,
@@ -296,7 +324,36 @@ function CostSheet({ onBack }) {
                 simpleMode: !showAdvanced
             }
         });
-        setSavedMessage('Ficha guardada para este negocio.');
+        setSavedMessage(editingSheetId ? 'Ficha actualizada para este negocio.' : 'Ficha guardada para este negocio.');
+        setEditingSheetId('');
+    };
+
+    const editSheet = (sheet) => {
+        setEditingSheetId(sheet.id);
+        setSalePrice(sheet.salePrice || sheet.totals?.priceMain || salePrice);
+        setSaleCurrency(sheet.saleCurrency || mainCurrency);
+        setManualMaterials((sheet.materialUsages || []).map((item) => ({
+            id: makeId('mat'),
+            productId: item.materialId || '',
+            name: item.name || item.material?.name || '',
+            totalCost: item.totalCost || item.material?.cost || '',
+            currency: item.currency || item.material?.currency || mainCurrency,
+            uses: item.uses || item.material?.uses || ''
+        })));
+        setManualExtras((sheet.extraExpenses || []).map((item) => ({
+            id: makeId('extra'),
+            expenseId: item.expenseId || '',
+            description: item.description || '',
+            amount: item.amount || '',
+            currency: item.currency || mainCurrency
+        })));
+        setSelectedFixedCosts((sheet.fixedCostUsages || sheet.totals?.fixedCostUsages || []).map((item) => item.id).filter(Boolean));
+        setDurationMinutes(sheet.totals?.durationMinutes || durationMinutes);
+        setHourlyValue(sheet.totals?.hourlyValue || 0);
+        setMonthlyServiceCount(sheet.totals?.monthlyServiceCount || serviceCountForOverhead);
+        setShowAdvanced(!sheet.totals?.simpleMode);
+        setIncludeOverhead(toNumber(sheet.totals?.overheadCostMain) > 0);
+        setSavedMessage('Ficha cargada para editar. Ajusta los gastos y vuelve a guardar.');
     };
 
     const deleteSheet = async (sheet) => {
@@ -456,7 +513,7 @@ function CostSheet({ onBack }) {
                             <div>
                                 <p className="text-xs font-bold text-gray-500 uppercase mb-1">4. Gastos extra</p>
                                 <h3 className="font-bold text-gray-900">Añade todos los gastos del servicio</h3>
-                                <p className="text-sm text-gray-600 mt-1">Ejemplos: transporte, comisión, ayuda, decoración o gasto puntual.</p>
+                                <p className="text-sm text-gray-600 mt-1">Agrega todos los que necesites: manuales o gastos ya registrados.</p>
                             </div>
                             <button type="button" onClick={addExtra} className="text-sm font-bold text-[var(--primary)] bg-pink-50 px-3 py-2 rounded-xl shrink-0">
                                 + Añadir
@@ -477,6 +534,22 @@ function CostSheet({ onBack }) {
                                                 Quitar
                                             </button>
                                         </div>
+                                        {registeredExpenses.length > 0 && (
+                                            <CostSheetFieldRow label="Gasto registrado">
+                                                <select
+                                                    className="input-field bg-white"
+                                                    value={item.expenseId || ''}
+                                                    onChange={(event) => selectRegisteredExpense(item.id, event.target.value)}
+                                                >
+                                                    <option value="">Escribir manualmente</option>
+                                                    {registeredExpenses.map((expense) => (
+                                                        <option key={expense.id} value={expense.id}>
+                                                            {expense.description || expense.category || 'Gasto'} - {formatMoney(expense.amount, expense.currency || mainCurrency)}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </CostSheetFieldRow>
+                                        )}
                                         <CostSheetFieldRow label="Descripción">
                                             <input
                                                 type="text"
@@ -693,7 +766,7 @@ function CostSheet({ onBack }) {
                         </button>
                         <button type="button" onClick={saveSheet} className="btn-primary">
                             <div className="icon-save text-sm"></div>
-                            Guardar ficha
+                            {editingSheetId ? 'Actualizar ficha' : 'Guardar ficha'}
                         </button>
                     </div>
 
@@ -725,6 +798,13 @@ function CostSheet({ onBack }) {
                                                 <p className="text-xs text-gray-500">{toNumber(sheet.totals.margin).toFixed(1)}%</p>
                                             </div>
                                         </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => editSheet(sheet)}
+                                            className="mt-3 w-full text-sm font-bold text-[var(--primary)] bg-pink-50 px-3 py-2 rounded-xl"
+                                        >
+                                            Editar ficha
+                                        </button>
                                         <button
                                             type="button"
                                             onClick={() => deleteSheet(sheet)}

@@ -508,15 +508,19 @@ function FinanceProvider({ children }) {
         },
 
         async saveCostSheet(sheet) {
+            const existingSheet = (stateRef.current.costSheets || []).find((item) => String(item.id) === String(sheet.id));
             const savedSheet = {
                 ...sheet,
-                id: makeId('sheet'),
-                createdAt: new Date().toISOString()
+                id: sheet.id || makeId('sheet'),
+                createdAt: sheet.createdAt || existingSheet?.createdAt || new Date().toISOString(),
+                updatedAt: new Date().toISOString()
             };
 
             setState((current) => ({
                 ...current,
-                costSheets: [savedSheet, ...(current.costSheets || [])]
+                costSheets: (current.costSheets || []).some((item) => String(item.id) === String(savedSheet.id))
+                    ? (current.costSheets || []).map((item) => String(item.id) === String(savedSheet.id) ? savedSheet : item)
+                    : [savedSheet, ...(current.costSheets || [])]
             }));
 
             if (activeBusinessIdRef.current) {
