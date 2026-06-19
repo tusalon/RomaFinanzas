@@ -481,7 +481,7 @@ async function syncRomaFinanceServicesFromBusiness(business, currentServices = [
             price: existing ? toNumber(existing.price) : service.price,
             duration: service.duration,
             currency: existing?.currency || service.currency,
-            active: service.active !== false,
+            active: existing ? existing.active !== false : service.active !== false,
             default_materials: existing?.default_materials || existing?.defaultMaterials || [],
             updated_at: new Date().toISOString()
         };
@@ -595,6 +595,16 @@ async function saveRomaFinanceIncome(negocioId, entry) {
     if (error) throw error;
 }
 
+async function deleteRomaFinanceIncome(negocioId, id) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    const { error } = await romaSupabase
+        .from('roma_finanzas_ingresos')
+        .delete()
+        .eq('negocio_id', negocioId)
+        .eq('id', id);
+    if (error) throw error;
+}
+
 function isMissingSchemaColumnError(error, columns = []) {
     const message = String(error?.message || '').toLowerCase();
     const details = String(error?.details || '').toLowerCase();
@@ -669,6 +679,16 @@ async function saveRomaFinanceMaterial(negocioId, material) {
     if (error) throw error;
 }
 
+async function deleteRomaFinanceMaterial(negocioId, id) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    const { error } = await romaSupabase
+        .from('roma_finanzas_materials')
+        .delete()
+        .eq('negocio_id', negocioId)
+        .eq('id', id);
+    if (error) throw error;
+}
+
 async function saveRomaFinanceService(negocioId, service) {
     if (!negocioId) throw new Error('No hay negocio activo.');
     const { error } = await romaSupabase.from('roma_finanzas_services').upsert({
@@ -683,6 +703,36 @@ async function saveRomaFinanceService(negocioId, service) {
         default_materials: service.defaultMaterials || [],
         updated_at: new Date().toISOString()
     }, { onConflict: 'negocio_id,id' });
+    if (error) throw error;
+}
+
+async function deleteRomaFinanceService(negocioId, service) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    const serviceId = typeof service === 'string' ? service : service?.id;
+    if (!serviceId) throw new Error('No hay servicio para eliminar.');
+
+    if (String(serviceId).startsWith('servicio_')) {
+        const { error } = await romaSupabase.from('roma_finanzas_services').upsert({
+            negocio_id: negocioId,
+            id: serviceId,
+            name: service?.name || 'Servicio',
+            category: service?.category || 'General',
+            price: toNumber(service?.price),
+            duration: Math.max(toNumber(service?.duration), 1),
+            currency: service?.currency || 'CUP',
+            active: false,
+            default_materials: service?.defaultMaterials || [],
+            updated_at: new Date().toISOString()
+        }, { onConflict: 'negocio_id,id' });
+        if (error) throw error;
+        return;
+    }
+
+    const { error } = await romaSupabase
+        .from('roma_finanzas_services')
+        .delete()
+        .eq('negocio_id', negocioId)
+        .eq('id', serviceId);
     if (error) throw error;
 }
 

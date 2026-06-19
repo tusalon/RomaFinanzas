@@ -142,58 +142,150 @@ function loadBusinessFinanceState(business) {
 function mergePendingItem(pending, item) {
     const withoutOpposite = (pending || []).filter((queued) => {
         if (queued.id !== item.id) return true;
+        if (item.type === 'deleteIncome' && queued.type === 'income') return false;
         if (item.type === 'deleteExpense' && queued.type === 'expense') return false;
+        if (item.type === 'deleteMaterial' && queued.type === 'material') return false;
         if (item.type === 'deleteCostSheet' && queued.type === 'costSheet') return false;
+        if (item.type === 'deleteService' && queued.type === 'service') return false;
         return true;
     });
     const exists = withoutOpposite.some((queued) => queued.type === item.type && queued.id === item.id);
     return exists ? withoutOpposite : [...withoutOpposite, { ...item, queuedAt: new Date().toISOString() }];
 }
 
-function preserveLocalUnsyncedExpenses(freshState, localState) {
-    const remoteExpenses = freshState.expenseEntries || [];
-    const localExpenses = (localState.expenseEntries || []).map(normalizeFinanceExpenseEntry);
-    const remoteIds = new Set(remoteExpenses.map((entry) => String(entry.id)));
-    const pendingDeletes = new Set((localState.pendingSync || [])
-        .filter((item) => item.type === 'deleteExpense')
+function preserveLocalUnsyncedCollection(freshRows, localRows, pendingItems, options = {}) {
+    const {
+        saveType,
+        deleteType,
+        normalize = (entry) => entry,
+        localFilter = () => true,
+        remoteFilter = () => true,
+        preferPendingLocal = false
+    } = options;
+    const pendingSaves = new Set((pendingItems || [])
+        .filter((item) => item.type === saveType)
         .map((item) => String(item.id)));
+    const pendingDeletes = new Set((pendingItems || [])
+        .filter((item) => item.type === deleteType)
+        .map((item) => String(item.id)));
+    const rowsById = new Map();
 
-    const localOnlyExpenses = localExpenses.filter((entry) => {
-        if (!entry?.id) return false;
-        if (remoteIds.has(String(entry.id))) return false;
-        if (pendingDeletes.has(String(entry.id))) return false;
+    (freshRows || [])
+        .map(normalize)
+        .filter((entry) => entry?.id && remoteFilter(entry) && !pendingDeletes.has(String(entry.id)))
+        .forEach((entry) => rowsById.set(String(entry.id), entry));
+
+    (localRows || [])
+        .map(normalize)
+        .filter((entry) => entry?.id && localFilter(entry) && !pendingDeletes.has(String(entry.id)))
+        .forEach((entry) => {
+            const key = String(entry.id);
+            if (!rowsById.has(key) || pendingSaves.has(key) || preferPendingLocal) {
+                rowsById.set(key, entry);
+            }
+        });
+
+    return Array.from(rowsById.values());
+}
+
+function preserveLocalUnsyncedState(freshState, localState) {
+    const pendingItems = localState.pendingSync || [];
+    const incomeEntries = preserveLocalUnsyncedCollection(
+        freshState.incomeEntries || [],
+        localState.incomeEntries || [],
+        pendingItems,
+        {
+            saveType: 'income',
+            deleteType: 'deleteIncome',
+            localFilter: (entry) => String(entry.id || '').startsWith('inc_')
+        }
+    );
+    const expenseEntries = preserveLocalUnsyncedCollection(
+        freshState.expenseEntries || [],
+        localState.expenseEntries || [],
+        pendingItems,
+        {
+            saveType: 'expense',
+            deleteType: 'deleteExpense',
+            normalize: normalizeFinanceExpenseEntry
+        }
+    );
+    const materials = preserveLocalUnsyncedCollection(
+        freshState.materials || [],
+        localState.materials || [],
+        pendingItems,
+        { saveType: 'material', deleteType: 'deleteMaterial' }
+    );
+    const services = preserveLocalUnsyncedCollection(
+        freshState.services || [],
+        localState.services || [],
+        pendingItems,
+        { saveType: 'service', deleteType: 'deleteService' }
+    );
+    const costSheets = preserveLocalUnsyncedCollection(
+        freshState.costSheets || [],
+        localState.costSheets || [],
+        pendingItems,
+        { saveType: 'costSheet', deleteType: 'deleteCostSheet' }
+    );
+    const pendingSync = pendingItems.filter((item) => {
+        if (item.type === 'deleteIncome') return !incomeEntries.some((entry) => String(entry.id) === String(item.id));
+        if (item.type === 'deleteExpense') return !expenseEntries.some((entry) => String(entry.id) === String(item.id));
+        if (item.type === 'deleteMaterial') return !materials.some((material) => String(material.id) === String(item.id));
+        if (item.type === 'deleteService') return !services.some((service) => String(service.id) === String(item.id));
+        if (item.type === 'deleteCostSheet') return !costSheets.some((sheet) => String(sheet.id) === String(item.id));
         return true;
     });
 
-    if (localOnlyExpenses.length === 0) {
-        return {
-            ...freshState,
-            pendingSync: []
-        };
-    }
-
-    const pendingSync = localOnlyExpenses.reduce((pending, entry) => (
-        mergePendingItem(pending, { type: 'expense', id: entry.id })
-    ), []);
-
     return {
         ...freshState,
-        expenseEntries: [...localOnlyExpenses, ...remoteExpenses],
+        incomeEntries,
+        expenseEntries,
+        materials,
+        services,
+        costSheets,
         pendingSync
     };
 }
 
-async function pushLocalExpensesSnapshot(negocioId, expenses = []) {
+async function pushLocalFinanceSnapshot(negocioId, state = {}) {
     if (!negocioId) return;
 
+    const uniqueIncomes = new Map();
+    (state.incomeEntries || [])
+        .filter((entry) => entry?.id && String(entry.id).startsWith('inc_'))
+        .forEach((entry) => uniqueIncomes.set(String(entry.id), entry));
+
+    for (const income of uniqueIncomes.values()) {
+        await saveRomaFinanceIncome(negocioId, income);
+    }
+
     const uniqueExpenses = new Map();
-    (expenses || [])
+    (state.expenseEntries || [])
         .map(normalizeFinanceExpenseEntry)
         .filter((entry) => entry?.id)
         .forEach((entry) => uniqueExpenses.set(String(entry.id), entry));
 
     for (const expense of uniqueExpenses.values()) {
         await saveRomaFinanceExpense(negocioId, expense);
+    }
+
+    const uniqueMaterials = new Map();
+    (state.materials || [])
+        .filter((entry) => entry?.id)
+        .forEach((entry) => uniqueMaterials.set(String(entry.id), entry));
+
+    for (const material of uniqueMaterials.values()) {
+        await saveRomaFinanceMaterial(negocioId, material);
+    }
+
+    const uniqueCostSheets = new Map();
+    (state.costSheets || [])
+        .filter((entry) => entry?.id)
+        .forEach((entry) => uniqueCostSheets.set(String(entry.id), entry));
+
+    for (const sheet of uniqueCostSheets.values()) {
+        await saveRomaFinanceCostSheet(negocioId, sheet);
     }
 }
 
@@ -262,6 +354,10 @@ function FinanceProvider({ children }) {
                 if (entry) await saveRomaFinanceIncome(negocioId, entry);
             }
 
+            if (item.type === 'deleteIncome') {
+                await deleteRomaFinanceIncome(negocioId, item.id);
+            }
+
             if (item.type === 'expense') {
                 const entry = (stateRef.current.expenseEntries || []).find((row) => row.id === item.id);
                 if (entry) await saveRomaFinanceExpense(negocioId, entry);
@@ -276,9 +372,17 @@ function FinanceProvider({ children }) {
                 if (material) await saveRomaFinanceMaterial(negocioId, material);
             }
 
+            if (item.type === 'deleteMaterial') {
+                await deleteRomaFinanceMaterial(negocioId, item.id);
+            }
+
             if (item.type === 'service') {
                 const service = (stateRef.current.services || []).find((row) => row.id === item.id);
                 if (service) await saveRomaFinanceService(negocioId, service);
+            }
+
+            if (item.type === 'deleteService') {
+                await deleteRomaFinanceService(negocioId, item.id);
             }
 
             if (item.type === 'costSheet') {
@@ -320,6 +424,24 @@ function FinanceProvider({ children }) {
             }
 
             return savedEntry;
+        },
+
+        async deleteIncome(id) {
+            setState((current) => ({
+                ...current,
+                incomeEntries: (current.incomeEntries || []).filter((entry) => String(entry.id) !== String(id)),
+                pendingSync: (current.pendingSync || []).filter((item) => !(item.type === 'income' && String(item.id) === String(id)))
+            }));
+
+            if (activeBusinessIdRef.current) {
+                try {
+                    await deleteRomaFinanceIncome(activeBusinessIdRef.current, id);
+                    setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
+                } catch (error) {
+                    console.error('No se pudo eliminar el ingreso en Supabase:', error);
+                    queueSync({ type: 'deleteIncome', id }, 'Ingreso eliminado offline. Sincroniza cuando tengas internet.');
+                }
+            }
         },
 
         async addExpense(entry) {
@@ -402,6 +524,24 @@ function FinanceProvider({ children }) {
             return savedMaterial;
         },
 
+        async deleteMaterial(id) {
+            setState((current) => ({
+                ...current,
+                materials: (current.materials || []).filter((material) => String(material.id) !== String(id)),
+                pendingSync: (current.pendingSync || []).filter((item) => !(item.type === 'material' && String(item.id) === String(id)))
+            }));
+
+            if (activeBusinessIdRef.current) {
+                try {
+                    await deleteRomaFinanceMaterial(activeBusinessIdRef.current, id);
+                    setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
+                } catch (error) {
+                    console.error('No se pudo eliminar el material en Supabase:', error);
+                    queueSync({ type: 'deleteMaterial', id }, 'Material eliminado offline. Sincroniza cuando tengas internet.');
+                }
+            }
+        },
+
         async saveService(service) {
             const savedService = {
                 ...service,
@@ -437,6 +577,27 @@ function FinanceProvider({ children }) {
             }
 
             return savedService;
+        },
+
+        async deleteService(service) {
+            const serviceId = typeof service === 'string' ? service : service?.id;
+            if (!serviceId) return;
+
+            setState((current) => ({
+                ...current,
+                services: (current.services || []).filter((item) => String(item.id) !== String(serviceId)),
+                pendingSync: (current.pendingSync || []).filter((item) => !(item.type === 'service' && String(item.id) === String(serviceId)))
+            }));
+
+            if (activeBusinessIdRef.current) {
+                try {
+                    await deleteRomaFinanceService(activeBusinessIdRef.current, service);
+                    setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
+                } catch (error) {
+                    console.error('No se pudo eliminar el servicio en Supabase:', error);
+                    queueSync({ type: 'deleteService', id: serviceId }, 'Servicio eliminado offline. Sincroniza cuando tengas internet.');
+                }
+            }
         },
 
         async updateConfig(config) {
@@ -481,9 +642,12 @@ function FinanceProvider({ children }) {
 
             try {
                 await pushPendingChanges();
-                await pushLocalExpensesSnapshot(business.id, localBusinessState.expenseEntries || []);
+                await pushLocalFinanceSnapshot(business.id, localBusinessState);
                 const financeState = await loadRomaFinanceData(business);
-                const mergedFinanceState = preserveLocalUnsyncedExpenses(financeState, localBusinessState);
+                const mergedFinanceState = preserveLocalUnsyncedState(financeState, {
+                    ...localBusinessState,
+                    pendingSync: []
+                });
                 setState((current) => ({
                     ...current,
                     ...mergedFinanceState,
@@ -566,10 +730,13 @@ function FinanceProvider({ children }) {
 
                 const business = stateRef.current.business;
                 if (business?.id) {
-                    await pushLocalExpensesSnapshot(business.id, stateRef.current.expenseEntries || []);
+                    await pushLocalFinanceSnapshot(business.id, stateRef.current);
                 }
                 const freshState = business?.id ? await loadRomaFinanceData(business) : {};
-                const mergedFreshState = preserveLocalUnsyncedExpenses(freshState, stateRef.current);
+                const mergedFreshState = preserveLocalUnsyncedState(freshState, {
+                    ...stateRef.current,
+                    pendingSync: []
+                });
 
                 setState((current) => ({
                     ...current,

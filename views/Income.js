@@ -1,5 +1,6 @@
 function Income() {
     const { state, actions } = useFinanceApp();
+    const manualIncomeEntries = (state.incomeEntries || []).filter((entry) => String(entry.id || '').startsWith('inc_'));
     const [form, setForm] = React.useState({
         serviceId: state.services[0] ? state.services[0].id : '',
         client: '',
@@ -30,6 +31,15 @@ function Income() {
             amount: toNumber(form.amount)
         });
         setSavedMessage('Ingreso guardado para este negocio.');
+    };
+
+    const deleteIncome = async (entry) => {
+        const label = entry.client || 'este ingreso';
+        const confirmed = window.confirm(`Eliminar el ingreso de "${label}"?`);
+        if (!confirmed) return;
+
+        await actions.deleteIncome(entry.id);
+        setSavedMessage('Ingreso eliminado.');
     };
 
     return (
@@ -90,6 +100,34 @@ function Income() {
                     Guardar ingreso
                 </button>
             </form>
+
+            {manualIncomeEntries.length > 0 && (
+                <div className="card p-4 mt-6">
+                    <h3 className="font-bold text-gray-900 mb-3">Ingresos manuales registrados</h3>
+                    <div className="space-y-3">
+                        {manualIncomeEntries.slice(0, 20).map((entry) => (
+                            <div key={entry.id} className="rounded-xl bg-gray-50 border border-gray-100 p-3">
+                                <div className="flex justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <p className="font-bold text-gray-900 truncate">{entry.client || 'Ingreso manual'}</p>
+                                        <p className="text-xs text-gray-500">{entry.date} - {entry.paymentMethod || 'Pago'}</p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                        <p className="font-black text-green-700">{formatMoney(entry.amount, entry.currency || state.config.mainCurrency)}</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => deleteIncome(entry)}
+                                            className="text-xs font-bold text-red-700 bg-red-50 px-2 py-1 rounded-lg mt-2"
+                                        >
+                                            Eliminar
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

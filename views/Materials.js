@@ -63,6 +63,18 @@ function Materials({ onBack }) {
         setShowForm(false);
     };
 
+    const deleteMaterial = async (material) => {
+        const confirmed = window.confirm(`Eliminar "${material.name}" de materiales y productos?`);
+        if (!confirmed) return;
+
+        await actions.deleteMaterial(material.id);
+        if (String(editingId) === String(material.id)) {
+            resetForm();
+            setShowForm(false);
+        }
+        setSavedMessage('Material eliminado.');
+    };
+
     return (
         <div className="p-4 space-y-5" data-name="materials" data-file="views/Materials.js">
             <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 flex gap-3">
@@ -224,14 +236,24 @@ function Materials({ onBack }) {
                                         <h4 className="font-bold text-gray-900">{mat.name}</h4>
                                         <p className="text-xs text-gray-500 mt-1">Unidad: {mat.unit || 'uso'} · Stock: {toNumber(mat.stock)}</p>
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => editMaterial(mat)}
-                                        className="w-9 h-9 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center shrink-0"
-                                        title="Editar producto"
-                                    >
-                                        <div className="icon-pencil text-sm"></div>
-                                    </button>
+                                    <div className="flex gap-2 shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => editMaterial(mat)}
+                                            className="w-9 h-9 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center"
+                                            title="Editar producto"
+                                        >
+                                            <div className="icon-pencil text-sm"></div>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => deleteMaterial(mat)}
+                                            className="w-9 h-9 rounded-full bg-red-50 text-red-700 flex items-center justify-center"
+                                            title="Eliminar producto"
+                                        >
+                                            <div className="icon-trash-2 text-sm"></div>
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="grid grid-cols-3 gap-2 text-sm mt-3 pt-3 border-t border-gray-100">

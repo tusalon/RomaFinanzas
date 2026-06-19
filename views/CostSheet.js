@@ -29,6 +29,9 @@ function CostSheet({ onBack }) {
     const [editingSheetId, setEditingSheetId] = React.useState('');
     const savedMaterials = state.materials || [];
     const registeredExpenses = state.expenseEntries || [];
+    const serviceExpenseOptions = React.useMemo(() => (
+        registeredExpenses.filter((entry) => !['fijo', 'herramienta'].includes(normalizeExpenseType(entry.type)))
+    ), [registeredExpenses]);
 
     const selectedService = activeServices.find((service) => service.id === selectedServiceId);
     const effectiveService = selectedService ? {
@@ -102,6 +105,7 @@ function CostSheet({ onBack }) {
         quantity: 1,
         name: material.name,
         totalCost: material.cost,
+        currency: material.currency,
         uses: material.uses,
         costPerService: material.costPerUse
     }));
@@ -232,25 +236,17 @@ function CostSheet({ onBack }) {
     };
 
     const selectRegisteredExpense = (id, expenseId) => {
-        const expense = registeredExpenses.find((item) => String(item.id) === String(expenseId));
+        const expense = serviceExpenseOptions.find((item) => String(item.id) === String(expenseId));
         setManualExtras((current) => current.map((item) => {
             if (item.id !== id) return item;
             if (!expense) return { ...item, expenseId };
 
-            const type = normalizeExpenseType(expense.type);
-            const isMonthlyExpense = ['fijo', 'herramienta'].includes(type);
-            const amount = isMonthlyExpense
-                ? getExpenseImpact(expense, state.config, 'month', now) / serviceCountForOverhead
-                : toNumber(expense.amount);
-
             return {
                 ...item,
                 expenseId,
-                description: isMonthlyExpense
-                    ? `${expense.description || expense.category || 'Gasto'} repartido`
-                    : (expense.description || expense.category || 'Gasto'),
-                amount,
-                currency: isMonthlyExpense ? mainCurrency : (expense.currency || mainCurrency)
+                description: expense.description || expense.category || 'Gasto',
+                amount: toNumber(expense.amount),
+                currency: expense.currency || mainCurrency
             };
         }));
     };
@@ -534,7 +530,7 @@ function CostSheet({ onBack }) {
                                                 Quitar
                                             </button>
                                         </div>
-                                        {registeredExpenses.length > 0 && (
+                                        {serviceExpenseOptions.length > 0 && (
                                             <CostSheetFieldRow label="Gasto registrado">
                                                 <select
                                                     className="input-field bg-white"
@@ -542,7 +538,7 @@ function CostSheet({ onBack }) {
                                                     onChange={(event) => selectRegisteredExpense(item.id, event.target.value)}
                                                 >
                                                     <option value="">Escribir manualmente</option>
-                                                    {registeredExpenses.map((expense) => (
+                                                    {serviceExpenseOptions.map((expense) => (
                                                         <option key={expense.id} value={expense.id}>
                                                             {expense.description || expense.category || 'Gasto'} - {formatMoney(expense.amount, expense.currency || mainCurrency)}
                                                         </option>

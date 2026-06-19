@@ -28,6 +28,16 @@ function Services({ onBack }) {
         cancelEdit();
     };
 
+    const deleteService = async (service) => {
+        const confirmed = window.confirm(`Eliminar "${service.name}" de Roma Finanzas?`);
+        if (!confirmed) return;
+
+        await actions.deleteService(service);
+        if (String(editingId) === String(service.id)) {
+            cancelEdit();
+        }
+    };
+
     return (
         <div className="p-4" data-name="services" data-file="views/Services.js">
             <div className="card p-4 mb-5 bg-blue-50 border-blue-100">
@@ -54,9 +64,17 @@ function Services({ onBack }) {
                                     </p>
                                 </div>
                                 {!isEditing && (
-                                    <button className="btn-secondary w-auto px-3 py-2 text-sm" onClick={() => startEdit(srv)}>
-                                        Editar
-                                    </button>
+                                    <div className="flex gap-2 shrink-0">
+                                        <button className="btn-secondary w-auto px-3 py-2 text-sm" onClick={() => startEdit(srv)}>
+                                            Editar
+                                        </button>
+                                        <button
+                                            className="bg-red-50 text-red-700 border border-red-100 rounded-xl px-3 py-2 text-sm font-bold"
+                                            onClick={() => deleteService(srv)}
+                                        >
+                                            Eliminar
+                                        </button>
+                                    </div>
                                 )}
                             </div>
 
@@ -85,8 +103,9 @@ function Services({ onBack }) {
                                         inputMode="numeric"
                                         placeholder="Duración en minutos"
                                     />
-                                    <div className="grid grid-cols-2 gap-2">
+                                    <div className="grid grid-cols-3 gap-2">
                                         <button className="btn-secondary" onClick={cancelEdit}>Cancelar</button>
+                                        <button className="bg-red-50 text-red-700 border border-red-100 rounded-xl px-3 py-2 font-bold" onClick={() => deleteService(srv)}>Eliminar</button>
                                         <button className="btn-primary" onClick={() => saveEdit(srv)}>Guardar</button>
                                     </div>
                                 </div>
