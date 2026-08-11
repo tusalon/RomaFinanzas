@@ -54,6 +54,7 @@ jobs:
 
       - name: Build web
         env:
+          ROMA_BACKEND_MODE: ${{ vars.ROMA_BACKEND_MODE }}
           ROMA_SUPABASE_URL: ${{ vars.ROMA_SUPABASE_URL }}
           ROMA_SUPABASE_ANON_KEY: ${{ vars.ROMA_SUPABASE_ANON_KEY }}
         run: npm run build:web
