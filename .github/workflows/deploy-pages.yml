@@ -1,0 +1,68 @@
+name: Deploy web (GitHub Pages)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "app.js"
+      - "components/**"
+      - "icons/**"
+      - "index.html"
+      - "manifest.json"
+      - "package.json"
+      - "package-lock.json"
+      - "pwa/**"
+      - "scripts/build-web.js"
+      - "scripts/project-config.js"
+      - "styles/**"
+      - "sw.js"
+      - "utils/**"
+      - "vendor/**"
+      - "views/**"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web
+        env:
+          ROMA_SUPABASE_URL: ${{ vars.ROMA_SUPABASE_URL }}
+          ROMA_SUPABASE_ANON_KEY: ${{ vars.ROMA_SUPABASE_ANON_KEY }}
+        run: npm run build:web
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
