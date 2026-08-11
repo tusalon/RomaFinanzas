@@ -7,9 +7,9 @@ const INITIAL_DATA = {
     config: {
         mainCurrency: 'CUP',
         rates: {
-            USD: 350,
-            MLC: 340,
-            EUR: 360
+            USD: 0,
+            MLC: 0,
+            EUR: 0
         },
         desiredMargin: 60
     },

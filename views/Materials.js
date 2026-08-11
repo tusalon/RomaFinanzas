@@ -4,20 +4,30 @@ function Materials({ onBack }) {
     const [showForm, setShowForm] = React.useState((state.materials || []).length === 0);
     const [editingId, setEditingId] = React.useState(null);
     const [savedMessage, setSavedMessage] = React.useState('');
+    const [formError, setFormError] = React.useState('');
+    const [stockAdjustment, setStockAdjustment] = React.useState(null);
     const [form, setForm] = React.useState({
         name: '',
         cost: '',
         currency: mainCurrency,
         uses: '',
         unit: 'uso',
-        stock: ''
+        stock: '',
+        lowStockThreshold: ''
     });
 
     const materials = state.materials || [];
     const costPerUse = getMaterialCostPerUse(form);
-    const totalInventoryValue = materials.reduce((sum, material) => (
-        sum + convertToMainCurrency(material.cost, material.currency, state.config)
-    ), 0);
+    const totalInventoryValue = materials.reduce((sum, material) => {
+        const unitPurchaseCost = Number.isFinite(Number(material.purchaseCostMain)) && toNumber(material.purchaseRateToMain) > 0
+            ? toNumber(material.purchaseCostMain)
+            : convertToMainCurrency(material.cost, material.currency, state.config);
+        return sum + (unitPurchaseCost * Math.max(toNumber(material.stock), 0));
+    }, 0);
+    const lowStockCount = materials.filter((material) => (
+        material.lowStockThreshold != null
+        && toNumber(material.stock) <= toNumber(material.lowStockThreshold)
+    )).length;
 
     const updateField = (field, value) => {
         setForm((current) => ({ ...current, [field]: value }));
@@ -31,7 +41,8 @@ function Materials({ onBack }) {
             currency: mainCurrency,
             uses: '',
             unit: 'uso',
-            stock: ''
+            stock: '',
+            lowStockThreshold: ''
         });
     };
 
@@ -45,7 +56,8 @@ function Materials({ onBack }) {
             currency: material.currency || mainCurrency,
             uses: material.uses || '',
             unit: material.unit || 'uso',
-            stock: material.stock || ''
+            stock: material.stock || '',
+            lowStockThreshold: material.lowStockThreshold ?? ''
         });
     };
 
@@ -56,7 +68,8 @@ function Materials({ onBack }) {
             ...form,
             cost: toNumber(form.cost),
             uses: Math.max(toNumber(form.uses), 1),
-            stock: toNumber(form.stock)
+            stock: toNumber(form.stock),
+            lowStockThreshold: form.lowStockThreshold
         });
         setSavedMessage(editingId ? 'Material actualizado.' : 'Material guardado.');
         resetForm();
@@ -75,13 +88,32 @@ function Materials({ onBack }) {
         setSavedMessage('Material eliminado.');
     };
 
+    const submitStockAdjustment = async (event) => {
+        event.preventDefault();
+        const quantity = toNumber(stockAdjustment?.quantity);
+        if (!stockAdjustment || quantity <= 0) {
+            setFormError('Escribe una cantidad mayor que cero.');
+            return;
+        }
+
+        try {
+            const delta = stockAdjustment.kind === 'entrada' ? quantity : -quantity;
+            await actions.adjustMaterialStock(stockAdjustment.material.id, delta, stockAdjustment.note || 'Ajuste manual');
+            setSavedMessage(stockAdjustment.kind === 'entrada' ? 'Entrada de inventario guardada.' : 'Salida de inventario guardada.');
+            setFormError('');
+            setStockAdjustment(null);
+        } catch (error) {
+            setFormError(error.message || 'No se pudo ajustar el inventario.');
+        }
+    };
+
     return (
-        <div className="p-4 space-y-5" data-name="materials" data-file="views/Materials.js">
-            <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 flex gap-3">
+        <div className="catalog-screen p-4 space-y-5" data-name="materials" data-file="views/Materials.js">
+            <div className="screen-intro screen-intro--product flex gap-3">
                 <div className="icon-box text-blue-600 mt-1"></div>
                 <div>
-                    <p className="text-sm font-semibold text-blue-900">Controla materiales y productos.</p>
-                    <p className="text-sm text-blue-800 mt-1">Registra cuánto cuesta cada producto y cuántas citas rinde para conocer el costo real por servicio.</p>
+                    <p className="text-sm font-semibold text-blue-900">¿Qué usas para hacer tus servicios?</p>
+                    <p className="text-sm text-blue-800 mt-1">Escribe cuánto te costó y para cuántas citas alcanza. La app calcula el costo de una cita.</p>
                 </div>
             </div>
 
@@ -91,10 +123,16 @@ function Materials({ onBack }) {
                     <p className="text-2xl font-black text-gray-900 mt-1">{materials.length}</p>
                 </div>
                 <div className="card p-4">
-                    <p className="text-xs font-black uppercase tracking-wide text-gray-400">Inversión</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-gray-400">Valor en productos</p>
                     <p className="text-2xl font-black text-blue-700 mt-1">{formatMoney(totalInventoryValue, mainCurrency)}</p>
                 </div>
             </div>
+
+            {lowStockCount > 0 && (
+                <div className="bg-orange-50 border border-orange-100 text-orange-800 rounded-2xl p-4 text-sm">
+                    {lowStockCount === 1 ? 'Un producto está por acabarse.' : `${lowStockCount} productos están por acabarse.`} Revisa lo que tienes antes de tu próxima cita.
+                </div>
+            )}
 
             <button
                 type="button"
@@ -106,14 +144,14 @@ function Materials({ onBack }) {
                 className="btn-secondary border-dashed border-2 text-blue-600 border-blue-200 bg-blue-50/50"
             >
                 <div className={showForm ? 'icon-x' : 'icon-plus'}></div>
-                {showForm ? 'Cerrar formulario' : 'Registrar material o producto'}
+                {showForm ? 'Cerrar' : 'Añadir producto'}
             </button>
 
             {showForm && (
                 <form className="card p-4 space-y-4" onSubmit={submitMaterial}>
                     <div>
                         <p className="text-xs font-bold text-gray-500 uppercase mb-1">{editingId ? 'Editar producto' : 'Nuevo producto'}</p>
-                        <h3 className="font-bold text-gray-900">Datos del material</h3>
+                        <h3 className="font-bold text-gray-900">Producto que usas</h3>
                     </div>
 
                     <div>
@@ -155,7 +193,7 @@ function Materials({ onBack }) {
 
                     <div className="mobile-stack grid grid-cols-2 gap-2">
                         <div>
-                            <label className="label">Rinde</label>
+                            <label className="label">¿Para cuántas citas alcanza?</label>
                             <input
                                 type="text"
                                 inputMode="decimal"
@@ -167,7 +205,7 @@ function Materials({ onBack }) {
                             />
                         </div>
                         <div>
-                            <label className="label">Unidad</label>
+                            <label className="label">Cómo lo cuentas</label>
                             <input
                                 type="text"
                                 className="input-field"
@@ -178,23 +216,40 @@ function Materials({ onBack }) {
                         </div>
                     </div>
 
-                    <div>
-                        <label className="label">Stock actual opcional</label>
-                        <input
-                            type="text"
-                                inputMode="decimal"
-                            min="0"
-                            className="input-field"
-                            placeholder="Ej. 2"
-                            value={form.stock}
-                            onChange={(event) => updateField('stock', event.target.value)}
-                        />
-                    </div>
+                    <details className="simple-details" open={(editingId != null && (form.stock !== '' || form.lowStockThreshold !== '')) || undefined}>
+                        <summary>Controlar cuántos quedan (opcional)</summary>
+                        <div className="grid grid-cols-2 gap-3 pt-3">
+                            <div>
+                                <label className="label">Cuántos tienes</label>
+                                <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    min="0"
+                                    className="input-field bg-white"
+                                    placeholder="Ej. 2"
+                                    value={form.stock}
+                                    onChange={(event) => updateField('stock', event.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="label">Avisar cuando queden</label>
+                                <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    min="0"
+                                    className="input-field bg-white"
+                                    placeholder="Ej. 1"
+                                    value={form.lowStockThreshold}
+                                    onChange={(event) => updateField('lowStockThreshold', event.target.value)}
+                                />
+                            </div>
+                        </div>
+                    </details>
 
                     <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex items-center justify-between gap-3">
                         <div>
-                            <p className="text-xs font-bold text-blue-700 uppercase">Costo por uso</p>
-                            <p className="text-sm text-blue-800">Esto es lo que se carga a cada cita.</p>
+                            <p className="text-xs font-bold text-blue-700 uppercase">Te cuesta por cita</p>
+                            <p className="text-sm text-blue-800">Este valor se usará en el cálculo.</p>
                         </div>
                         <strong className="text-xl text-blue-900">{formatMoney(costPerUse, form.currency || mainCurrency)}</strong>
                     </div>
@@ -212,6 +267,12 @@ function Materials({ onBack }) {
                 </div>
             )}
 
+            {formError && (
+                <div className="bg-red-50 border border-red-100 text-red-700 rounded-xl p-3 text-sm">
+                    {formError}
+                </div>
+            )}
+
             {state.syncError && (
                 <div className="bg-orange-50 border border-orange-100 text-orange-700 rounded-xl p-3 text-sm">
                     {state.syncError}
@@ -219,7 +280,7 @@ function Materials({ onBack }) {
             )}
 
             <div>
-                <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 px-1">Inventario básico</h3>
+                <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 px-1">Tus productos</h3>
 
                 {materials.length === 0 ? (
                     <div className="card p-5 text-center">
@@ -234,7 +295,7 @@ function Materials({ onBack }) {
                                 <div className="flex justify-between items-start gap-3 mb-2">
                                     <div>
                                         <h4 className="font-bold text-gray-900">{mat.name}</h4>
-                                        <p className="text-xs text-gray-500 mt-1">Unidad: {mat.unit || 'uso'} · Stock: {toNumber(mat.stock)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Lo cuentas por {mat.unit || 'uso'}{toNumber(mat.stock) > 0 ? ` · Tienes ${toNumber(mat.stock)}` : ''}</p>
                                     </div>
                                     <div className="flex gap-2 shrink-0">
                                         <button
@@ -242,6 +303,7 @@ function Materials({ onBack }) {
                                             onClick={() => editMaterial(mat)}
                                             className="w-9 h-9 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center"
                                             title="Editar producto"
+                                            aria-label={`Editar ${mat.name}`}
                                         >
                                             <div className="icon-pencil text-sm"></div>
                                         </button>
@@ -250,6 +312,7 @@ function Materials({ onBack }) {
                                             onClick={() => deleteMaterial(mat)}
                                             className="w-9 h-9 rounded-full bg-red-50 text-red-700 flex items-center justify-center"
                                             title="Eliminar producto"
+                                            aria-label={`Eliminar ${mat.name}`}
                                         >
                                             <div className="icon-trash-2 text-sm"></div>
                                         </button>
@@ -258,18 +321,44 @@ function Materials({ onBack }) {
 
                                 <div className="grid grid-cols-3 gap-2 text-sm mt-3 pt-3 border-t border-gray-100">
                                     <div>
-                                        <p className="text-gray-500 text-xs mb-0.5">Costo total</p>
+                                        <p className="text-gray-500 text-xs mb-0.5">Te costó</p>
                                         <p className="font-semibold text-gray-700">{formatMoney(mat.cost, mat.currency)}</p>
                                     </div>
                                     <div>
-                                        <p className="text-gray-500 text-xs mb-0.5">Rinde</p>
+                                        <p className="text-gray-500 text-xs mb-0.5">Alcanza para</p>
                                         <p className="font-semibold text-gray-700">{mat.uses} usos</p>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-gray-500 text-xs mb-0.5">Por uso</p>
+                                        <p className="text-gray-500 text-xs mb-0.5">Por cita</p>
                                         <p className="font-bold text-[var(--primary)]">{formatMoney(getMaterialCostPerUse(mat), mat.currency)}</p>
                                     </div>
                                 </div>
+
+                                <details className="simple-details !p-3 mt-3">
+                                    <summary className="text-sm">Controlar cuántos quedan (opcional)</summary>
+                                    <div className="grid grid-cols-2 gap-2 mt-3">
+                                        <button type="button" onClick={() => setStockAdjustment({ material: mat, kind: 'entrada', quantity: '', note: '' })} className="btn-secondary !py-2 text-sm text-green-700">
+                                            <div className="icon-plus"></div> Añadir
+                                        </button>
+                                        <button type="button" onClick={() => setStockAdjustment({ material: mat, kind: 'salida', quantity: '', note: '' })} className="btn-secondary !py-2 text-sm text-orange-700">
+                                            <div className="icon-minus"></div> Descontar
+                                        </button>
+                                    </div>
+
+                                    {stockAdjustment && String(stockAdjustment.material.id) === String(mat.id) && (
+                                        <form onSubmit={submitStockAdjustment} className="mt-3 bg-gray-50 rounded-xl border border-gray-100 p-3 space-y-3">
+                                            <p className="text-sm font-bold text-gray-900">
+                                                {stockAdjustment.kind === 'entrada' ? '¿Cuántos llegaron?' : '¿Cuántos usaste o salieron?'}
+                                            </p>
+                                            <input type="text" inputMode="decimal" className="input-field bg-white" placeholder="Cantidad" value={stockAdjustment.quantity} onChange={(event) => setStockAdjustment((current) => ({ ...current, quantity: event.target.value }))} />
+                                            <input type="text" className="input-field bg-white" placeholder="Nota opcional" value={stockAdjustment.note} onChange={(event) => setStockAdjustment((current) => ({ ...current, note: event.target.value }))} />
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <button type="button" onClick={() => setStockAdjustment(null)} className="btn-secondary !py-2">Cancelar</button>
+                                                <button type="submit" className="btn-primary !py-2">Guardar</button>
+                                            </div>
+                                        </form>
+                                    )}
+                                </details>
                             </div>
                         ))}
                     </div>

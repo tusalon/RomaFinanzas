@@ -7,8 +7,8 @@ android {
         applicationId "com.tusalon.romafinanzas"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 11
-        versionName "1.0.11"
+        versionCode 12
+        versionName "1.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +16,25 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            def releaseStorePath = System.getenv("ROMA_ANDROID_KEYSTORE")
+            if (releaseStorePath) {
+                storeFile file(releaseStorePath)
+                storePassword System.getenv("ROMA_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ROMA_ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ROMA_ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (System.getenv("ROMA_ANDROID_KEYSTORE")) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

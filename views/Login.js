@@ -1,4 +1,5 @@
 function Login({ onLogin, checkingSession }) {
+    const usesEmailLogin = window.ROMA_CONFIG?.backendMode === 'standalone-auth';
     const [username, setUsername] = React.useState('');
     const [password, setPassword] = React.useState('');
     const [loading, setLoading] = React.useState(false);
@@ -10,7 +11,7 @@ function Login({ onLogin, checkingSession }) {
 
         setError('');
         if (!username.trim() || !password) {
-            setError('Escribe tu usuario y contraseña.');
+            setError(usesEmailLogin ? 'Escribe tu correo y contraseña.' : 'Escribe tu usuario y contraseña.');
             return;
         }
 
@@ -26,34 +27,43 @@ function Login({ onLogin, checkingSession }) {
     };
 
     return (
-        <div className="min-h-screen flex flex-col p-6 items-center justify-center bg-white" data-name="login" data-file="views/Login.js">
-            <div className="w-full max-w-sm">
-                <div className="text-center">
-                    <div className="w-24 h-24 bg-white rounded-3xl mx-auto mb-8 flex items-center justify-center shadow-lg border border-pink-100 overflow-hidden">
+        <div className="login-screen min-h-screen flex flex-col p-6 items-center justify-center" data-name="login" data-file="views/Login.js">
+            <div className="login-orb login-orb--one"></div>
+            <div className="login-orb login-orb--two"></div>
+            <div className="w-full max-w-sm relative z-10">
+                <div className="text-center login-brand">
+                    <div className="login-logo">
                         <img src="icons/icon-192x192.png" alt="Roma Finanzas" className="w-full h-full object-cover" />
                     </div>
 
-                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Roma Finanzas</h1>
-                    <p className="text-gray-500 mb-8 text-sm px-4">Calcula si tu salón realmente está ganando.</p>
+                    <div className="login-badge"><span className="icon-sparkles"></span> RservasRoma · Acceso privado</div>
+                    <h1 className="login-title">Roma Finanzas</h1>
+                    <p className="login-subtitle">Tus precios. Tus costos. Tu ganancia.</p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-4 w-full">
+                <form onSubmit={handleSubmit} className="login-card space-y-4 w-full">
+                    <div className="mb-5">
+                        <h2 className="text-xl font-black text-[var(--text-main)]">Bienvenida</h2>
+                        <p className="text-sm text-[var(--text-muted)] mt-1">Entra para ver cuánto te está quedando limpio.</p>
+                    </div>
                     <div>
-                        <label className="label">Usuario del negocio</label>
+                        <label htmlFor="roma-username" className="label">{usesEmailLogin ? 'Correo' : 'Usuario del negocio'}</label>
                         <input
-                            type="text"
+                            id="roma-username"
+                            type={usesEmailLogin ? 'email' : 'text'}
                             className="input-field bg-white"
                             value={username}
                             onChange={(event) => setUsername(event.target.value)}
-                            placeholder="usuario"
-                            autoComplete="username"
+                            placeholder={usesEmailLogin ? 'tu@correo.com' : 'usuario'}
+                            autoComplete={usesEmailLogin ? 'email' : 'username'}
                             autoCapitalize="none"
                         />
                     </div>
 
                     <div>
-                        <label className="label">Contraseña</label>
+                        <label htmlFor="roma-password" className="label">Contraseña</label>
                         <input
+                            id="roma-password"
                             type="password"
                             className="input-field bg-white"
                             value={password}
@@ -64,26 +74,27 @@ function Login({ onLogin, checkingSession }) {
                     </div>
 
                     {error && (
-                        <div className="bg-red-50 border border-red-100 text-red-700 rounded-xl p-3 text-sm">
+                        <div role="alert" className="bg-red-50 border border-red-100 text-red-700 rounded-xl p-3 text-sm">
                             {error}
                         </div>
                     )}
 
                     {checkingSession && (
-                        <div className="bg-gray-50 border border-gray-100 text-gray-600 rounded-xl p-3 text-sm">
+                        <div role="status" className="bg-gray-50 border border-gray-100 text-gray-600 rounded-xl p-3 text-sm">
                             Verificando sesión guardada...
                         </div>
                     )}
 
-                    <button type="submit" disabled={loading || checkingSession} className="btn-primary py-4 text-lg disabled:opacity-60">
-                        {loading ? 'Entrando...' : 'Entrar con RservasRoma'}
+                    <button type="submit" disabled={loading || checkingSession} className="btn-primary py-4 text-base disabled:opacity-60">
+                        {loading ? 'Entrando...' : (usesEmailLogin ? 'Entrar a Roma Finanzas' : 'Entrar con RservasRoma')}
+                        {!loading && !checkingSession && <span className="icon-arrow-right text-sm"></span>}
                     </button>
                 </form>
 
-                <div className="mt-8 p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-start gap-3 text-left">
-                    <div className="icon-circle-alert text-gray-400 mt-0.5 shrink-0"></div>
-                    <p className="text-xs text-gray-500 leading-relaxed">
-                        <strong>Aviso de acceso:</strong> Solo los negocios con usuario activo de RservasRoma y acceso a Roma Finanzas podrán utilizar esta herramienta.
+                <div className="login-notice">
+                    <div className="icon-shield-check text-[var(--primary)] mt-0.5 shrink-0"></div>
+                    <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                        Protegido para negocios invitados y activos de RservasRoma. No existe registro público.
                     </p>
                 </div>
             </div>

@@ -1,7 +1,16 @@
 node_modules/
 www/
+dist/
+backups/
+private-backups/
+private-setup/
+*.dump
 android/app/build/
 android/.gradle/
 android/build/
 apk-output/
 *.log
+.env
+.env.local
+*.jks
+*.keystore

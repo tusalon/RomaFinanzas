@@ -1,6 +1,7 @@
 function Expenses() {
     const { state, actions } = useFinanceApp();
     const [form, setForm] = React.useState({
+        date: getTodayKey(),
         category: 'Materiales de uso rápido',
         description: '',
         amount: 0,
@@ -9,6 +10,8 @@ function Expenses() {
         usefulLifeMonths: 12
     });
     const [savedMessage, setSavedMessage] = React.useState('');
+    const [formError, setFormError] = React.useState('');
+    const [editingId, setEditingId] = React.useState('');
 
     const selectedType = getExpenseTypeMeta(form.type);
     const categories = getExpenseCategories(form.type);
@@ -33,15 +36,44 @@ function Expenses() {
 
     const submitExpense = async (event) => {
         event.preventDefault();
+        setFormError('');
+        if (!form.date || toNumber(form.amount) <= 0) {
+            setFormError('Selecciona una fecha y escribe un monto mayor que cero.');
+            return;
+        }
         await actions.addExpense({
             ...form,
+            id: editingId || undefined,
             amount: toNumber(form.amount),
             usefulLifeMonths: form.type === 'herramienta' ? Math.max(toNumber(form.usefulLifeMonths), 1) : null,
             depreciationNote: form.type === 'herramienta'
                 ? `Depreciación mensual aproximada: ${formatMoney(monthlyDepreciation, state.config.mainCurrency)}`
                 : ''
         });
-        setSavedMessage('Gasto guardado para este negocio.');
+        setSavedMessage(editingId ? 'Gasto actualizado.' : 'Gasto guardado.');
+        setEditingId('');
+        setForm((current) => ({
+            ...current,
+            date: getTodayKey(),
+            description: '',
+            amount: 0
+        }));
+    };
+
+    const editExpense = (expense) => {
+        setEditingId(expense.id);
+        setSavedMessage('');
+        setFormError('');
+        setForm({
+            date: expense.date || getTodayKey(),
+            category: expense.category || getExpenseCategories(expense.type)[0],
+            description: expense.description || '',
+            amount: expense.amount,
+            currency: expense.currency || state.config.mainCurrency,
+            type: normalizeExpenseType(expense.type),
+            usefulLifeMonths: expense.usefulLifeMonths || 12
+        });
+        window.scrollTo(0, 0);
     };
 
     const deleteExpense = async (expense) => {
@@ -53,55 +85,51 @@ function Expenses() {
     };
 
     return (
-        <div className="p-4" data-name="expenses" data-file="views/Expenses.js">
-            <div className="bg-red-50 rounded-2xl p-4 border border-red-100 mb-6 flex gap-3">
+        <div className="form-screen p-4" data-name="expenses" data-file="views/Expenses.js">
+            <div className="screen-intro screen-intro--expense mb-6 flex gap-3">
                 <div className="icon-receipt text-red-600 mt-1"></div>
                 <div>
-                    <p className="text-sm font-semibold text-red-900">Registra gastos sin complicarte.</p>
-                    <p className="text-sm text-red-800 mt-1">Separa pagos fijos, gastos cotidianos y herramientas que se usan durante varios meses.</p>
+                    <p className="text-sm font-semibold text-red-900">Anota el dinero que salió.</p>
+                    <p className="text-sm text-red-800 mt-1">Elige una opción y escribe cuánto pagaste.</p>
                 </div>
             </div>
 
             <form className="space-y-5" onSubmit={submitExpense}>
                 <div>
-                    <label className="label">Tipo de gasto</label>
-                    <div className="grid grid-cols-1 gap-3">
+                    <label className="label">Fecha</label>
+                    <input type="date" className="input-field" value={form.date} onChange={(event) => updateField('date', event.target.value)} max={getTodayKey()} required />
+                </div>
+                <div>
+                    <label className="label">¿Qué pagaste?</label>
+                    <div className="grid grid-cols-3 gap-2">
                         {EXPENSE_TYPES.map((type) => (
                             <button
                                 key={type.id}
                                 type="button"
                                 onClick={() => selectType(type.id)}
-                                className={`text-left rounded-2xl border p-4 transition-colors ${form.type === type.id ? 'border-[var(--primary)] bg-[var(--primary-light)]' : 'border-gray-200 bg-white'}`}
+                                className={`text-center rounded-2xl border p-3 transition-colors ${form.type === type.id ? 'border-[var(--primary)] bg-[var(--primary-light)]' : 'border-gray-200 bg-white'}`}
                             >
-                                <div className="flex items-start gap-3">
-                                    <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${form.type === type.id ? 'bg-white text-[var(--primary)]' : 'bg-gray-100 text-gray-500'}`}>
+                                <div className="flex flex-col items-center gap-2">
+                                    <div className={`w-9 h-9 rounded-full flex items-center justify-center ${form.type === type.id ? 'bg-white text-[var(--primary)]' : 'bg-gray-100 text-gray-500'}`}>
                                         <div className={type.id === 'fijo' ? 'icon-calendar-days' : type.id === 'herramienta' ? 'icon-hammer' : 'icon-shopping-basket'}></div>
                                     </div>
-                                    <div>
-                                        <p className="font-bold text-gray-900">{type.label}</p>
-                                        <p className="text-xs text-gray-600 mt-1">{type.description}</p>
-                                    </div>
+                                    <p className="text-xs font-bold text-gray-900">{type.id === 'fijo' ? 'Pago mensual' : type.id === 'herramienta' ? 'Equipo' : 'Gasto del día'}</p>
                                 </div>
                             </button>
                         ))}
                     </div>
-                </div>
-
-                <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4">
-                    <p className="text-xs font-black uppercase tracking-wide text-gray-400 mb-1">Gasto seleccionado</p>
-                    <p className="font-bold text-gray-900">{selectedType.label}</p>
-                    <p className="text-sm text-gray-600 mt-1">{selectedType.description}</p>
+                    <p className="text-xs text-gray-500 mt-2">{selectedType.description}</p>
                 </div>
 
                 <div>
-                    <label className="label">Categoría de gasto</label>
+                    <label className="label">Elige una categoría</label>
                     <select className="input-field" value={form.category} onChange={(event) => updateField('category', event.target.value)}>
                         {categories.map((category) => <option key={category}>{category}</option>)}
                     </select>
                 </div>
 
                 <div>
-                    <label className="label">Descripción</label>
+                    <label className="label">¿Qué compraste o pagaste?</label>
                     <input
                         type="text"
                         className="input-field"
@@ -128,7 +156,7 @@ function Expenses() {
                 {form.type === 'herramienta' && (
                     <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 space-y-3">
                         <div>
-                            <label className="label text-blue-900">Vida útil estimada</label>
+                            <label className="label text-blue-900">¿Cuántos meses crees que durará?</label>
                             <div className="grid grid-cols-[1fr_auto] gap-3 items-center">
                                 <input
                                     type="text"
@@ -143,7 +171,7 @@ function Expenses() {
                         </div>
 
                         <div className="bg-white rounded-xl p-3 border border-blue-100">
-                            <p className="text-xs text-blue-700 font-semibold">Impacto mensual aproximado</p>
+                            <p className="text-xs text-blue-700 font-semibold">La app contará cada mes</p>
                             <p className="text-xl font-black text-blue-900 mt-1">{formatMoney(monthlyDepreciation, state.config.mainCurrency)}</p>
                             <p className="text-xs text-blue-700 mt-1">La app lo cuenta poco a poco para medir mejor la ganancia real.</p>
                         </div>
@@ -151,10 +179,11 @@ function Expenses() {
                 )}
 
                 {savedMessage && <div className="bg-green-50 border border-green-100 text-green-700 rounded-xl p-3 text-sm">{savedMessage}</div>}
+                {formError && <div className="bg-red-50 border border-red-100 text-red-700 rounded-xl p-3 text-sm">{formError}</div>}
                 {state.syncError && <div className="bg-orange-50 border border-orange-100 text-orange-700 rounded-xl p-3 text-sm">{state.syncError}</div>}
 
                 <button type="submit" className="w-full bg-gray-900 text-white font-medium py-3 px-4 rounded-xl shadow-sm active:scale-[0.98] transition-transform duration-150 flex items-center justify-center gap-2 mt-6">
-                    Registrar gasto
+                    {editingId ? 'Actualizar gasto' : 'Guardar gasto'}
                 </button>
             </form>
 
@@ -171,17 +200,10 @@ function Expenses() {
                                     </div>
                                     <div className="text-right shrink-0">
                                         <p className="font-black text-red-700">{formatMoney(expense.amount, expense.currency || state.config.mainCurrency)}</p>
-                                        {String(expense.id || '').startsWith('gasto_rservasroma_') ? (
-                                            <p className="text-xs font-semibold text-gray-400 mt-2">Fijo del sistema</p>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                onClick={() => deleteExpense(expense)}
-                                                className="text-xs font-bold text-red-700 bg-red-50 px-2 py-1 rounded-lg mt-2"
-                                            >
-                                                Eliminar
-                                            </button>
-                                        )}
+                                        <div className="flex gap-2 mt-2">
+                                            <button type="button" onClick={() => editExpense(expense)} className="text-xs font-bold text-gray-700 bg-white border border-gray-200 px-2 py-1 rounded-lg">Editar</button>
+                                            <button type="button" onClick={() => deleteExpense(expense)} className="text-xs font-bold text-red-700 bg-red-50 px-2 py-1 rounded-lg">Eliminar</button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

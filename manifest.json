@@ -2,13 +2,13 @@
     "name": "Roma Finanzas",
     "short_name": "Roma Finanzas",
     "description": "Herramienta financiera para negocios de RservasRoma.",
-    "id": "/RomaFinanzas/",
+    "id": "./",
     "start_url": "./",
     "scope": "./",
     "display": "standalone",
     "display_override": ["standalone", "minimal-ui"],
-    "background_color": "#f9fafb",
-    "theme_color": "#ec4899",
+    "background_color": "#f8f4f7",
+    "theme_color": "#d62d78",
     "orientation": "portrait",
     "categories": ["business", "finance", "productivity"],
     "lang": "es",
@@ -69,9 +69,9 @@
     ],
     "shortcuts": [
         {
-            "name": "Resumen",
-            "short_name": "Resumen",
-            "description": "Abrir el resumen financiero",
+            "name": "Inicio",
+            "short_name": "Inicio",
+            "description": "Abrir el resumen de tu negocio",
             "url": "./",
             "icons": [
                 {

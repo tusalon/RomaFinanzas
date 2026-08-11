@@ -4,20 +4,11 @@ const FINANCE_BUSINESS_STORAGE_PREFIX = 'roma_finanzas_state_v2_business_';
 const FinanceContext = React.createContext(null);
 
 function normalizeFinanceExpenseEntry(entry) {
-    const isRservasRomaExpense = String(entry?.id || '').startsWith('gasto_rservasroma_')
-        || String(entry?.category || '').toLowerCase() === 'rservasroma'
-        || String(entry?.description || '').toLowerCase() === 'rservasroma';
-
-    if (!isRservasRomaExpense) return entry;
-
     return {
         ...entry,
-        category: 'RservasRoma',
-        description: 'RservasRoma',
-        amount: 1000,
-        currency: 'CUP',
-        type: 'fijo',
-        usefulLifeMonths: 0
+        type: normalizeExpenseType(entry?.type),
+        rateToMain: toNumber(entry?.rateToMain),
+        amountMain: toNumber(entry?.amountMain)
     };
 }
 
@@ -36,6 +27,7 @@ function createInitialFinanceState() {
     }));
 
     state.costSheets = state.costSheets || [];
+    state.inventoryMovements = state.inventoryMovements || [];
     state.pendingSync = state.pendingSync || [];
     state.lastSyncAt = state.lastSyncAt || '';
     state.syncStatus = state.syncStatus || 'idle';
@@ -135,6 +127,7 @@ function loadBusinessFinanceState(business) {
         incomeEntries: [],
         expenseEntries: [],
         costSheets: [],
+        inventoryMovements: [],
         pendingSync: []
     };
 }
@@ -180,7 +173,7 @@ function preserveLocalUnsyncedCollection(freshRows, localRows, pendingItems, opt
         .filter((entry) => entry?.id && localFilter(entry) && !pendingDeletes.has(String(entry.id)))
         .forEach((entry) => {
             const key = String(entry.id);
-            if (!rowsById.has(key) || pendingSaves.has(key) || preferPendingLocal) {
+            if (pendingSaves.has(key) || (preferPendingLocal && !rowsById.has(key))) {
                 rowsById.set(key, entry);
             }
         });
@@ -228,12 +221,19 @@ function preserveLocalUnsyncedState(freshState, localState) {
         pendingItems,
         { saveType: 'costSheet', deleteType: 'deleteCostSheet' }
     );
+    const inventoryMovements = preserveLocalUnsyncedCollection(
+        freshState.inventoryMovements || [],
+        localState.inventoryMovements || [],
+        pendingItems,
+        { saveType: 'inventoryMovement', deleteType: 'deleteInventoryMovement' }
+    );
     const pendingSync = pendingItems.filter((item) => {
         if (item.type === 'deleteIncome') return !incomeEntries.some((entry) => String(entry.id) === String(item.id));
         if (item.type === 'deleteExpense') return !expenseEntries.some((entry) => String(entry.id) === String(item.id));
         if (item.type === 'deleteMaterial') return !materials.some((material) => String(material.id) === String(item.id));
         if (item.type === 'deleteService') return !services.some((service) => String(service.id) === String(item.id));
         if (item.type === 'deleteCostSheet') return !costSheets.some((sheet) => String(sheet.id) === String(item.id));
+        if (item.type === 'deleteInventoryMovement') return !inventoryMovements.some((movement) => String(movement.id) === String(item.id));
         return true;
     });
 
@@ -244,49 +244,67 @@ function preserveLocalUnsyncedState(freshState, localState) {
         materials,
         services,
         costSheets,
+        inventoryMovements,
         pendingSync
     };
 }
 
-async function pushLocalFinanceSnapshot(negocioId, state = {}) {
-    if (!negocioId) return;
+function planIncomeInventory(state, income) {
+    const previousMovements = (state.inventoryMovements || []).filter((movement) => (
+        String(movement.sourceIncomeId || '') === String(income.id)
+    ));
+    const materialsById = new Map((state.materials || []).map((material) => [String(material.id), { ...material }]));
 
-    const uniqueIncomes = new Map();
-    (state.incomeEntries || [])
-        .filter((entry) => entry?.id && String(entry.id).startsWith('inc_'))
-        .forEach((entry) => uniqueIncomes.set(String(entry.id), entry));
+    previousMovements.forEach((movement) => {
+        const material = materialsById.get(String(movement.materialId));
+        if (material) material.stock = Math.max(toNumber(material.stock) - toNumber(movement.quantity), 0);
+    });
 
-    for (const income of uniqueIncomes.values()) {
-        await saveRomaFinanceIncome(negocioId, income);
-    }
+    const sheet = getApplicableCostSheet(income.serviceId, income.date, state.costSheets || []);
+    const requestedUses = new Map();
+    (sheet?.materialUsages || []).forEach((usage) => {
+        const key = String(usage.materialId || '');
+        if (!key) return;
+        requestedUses.set(key, (requestedUses.get(key) || 0) + Math.max(toNumber(usage.quantity), 0));
+    });
 
-    const uniqueExpenses = new Map();
-    (state.expenseEntries || [])
-        .map(normalizeFinanceExpenseEntry)
-        .filter((entry) => entry?.id)
-        .forEach((entry) => uniqueExpenses.set(String(entry.id), entry));
+    const newMovements = [];
+    requestedUses.forEach((usesUsed, materialId) => {
+        const material = materialsById.get(materialId);
+        if (!material || toNumber(material.stock) <= 0 || usesUsed <= 0) return;
+        const packageQuantity = usesUsed / Math.max(toNumber(material.uses), 1);
+        const quantityOut = Math.min(packageQuantity, toNumber(material.stock));
+        if (quantityOut <= 0) return;
 
-    for (const expense of uniqueExpenses.values()) {
-        await saveRomaFinanceExpense(negocioId, expense);
-    }
+        material.stock = Math.max(toNumber(material.stock) - quantityOut, 0);
+        newMovements.push({
+            id: `inv_${income.id}_${material.id}`,
+            materialId: material.id,
+            date: income.date,
+            movementType: 'consumo_servicio',
+            quantity: -quantityOut,
+            note: `Consumo calculado para ${income.client || 'un servicio'}`,
+            sourceIncomeId: income.id
+        });
+    });
 
-    const uniqueMaterials = new Map();
-    (state.materials || [])
-        .filter((entry) => entry?.id)
-        .forEach((entry) => uniqueMaterials.set(String(entry.id), entry));
+    const newIds = new Set(newMovements.map((movement) => String(movement.id)));
+    return {
+        materials: Array.from(materialsById.values()),
+        newMovements,
+        deletedMovements: previousMovements.filter((movement) => !newIds.has(String(movement.id))),
+        inventoryMovements: [
+            ...newMovements,
+            ...(state.inventoryMovements || []).filter((movement) => String(movement.sourceIncomeId || '') !== String(income.id))
+        ]
+    };
+}
 
-    for (const material of uniqueMaterials.values()) {
-        await saveRomaFinanceMaterial(negocioId, material);
-    }
-
-    const uniqueCostSheets = new Map();
-    (state.costSheets || [])
-        .filter((entry) => entry?.id)
-        .forEach((entry) => uniqueCostSheets.set(String(entry.id), entry));
-
-    for (const sheet of uniqueCostSheets.values()) {
-        await saveRomaFinanceCostSheet(negocioId, sheet);
-    }
+function applyServerVersion(record, result) {
+    if (!record || !result) return record;
+    if (toNumber(result.version) > 0) record.version = toNumber(result.version);
+    if (result.updated_at) record.updatedAt = result.updated_at;
+    return record;
 }
 
 function FinanceProvider({ children }) {
@@ -301,12 +319,17 @@ function FinanceProvider({ children }) {
     React.useEffect(() => {
         try {
             if (state.business?.id) {
+                const savedAt = new Date().toISOString();
                 window.localStorage.setItem(getBusinessStorageKey(state.business.id), JSON.stringify(state));
+                window.localStorage.setItem(`${getBusinessStorageKey(state.business.id)}_updated_at`, savedAt);
                 window.localStorage.setItem(FINANCE_STORAGE_KEY, JSON.stringify({
                     business: state.business,
                     lastSyncAt: state.lastSyncAt,
                     syncStatus: state.syncStatus
                 }));
+                saveFinanceStateToIndexedDb(state.business.id, state).catch((error) => {
+                    console.warn('No se pudo actualizar el respaldo IndexedDB:', error);
+                });
             }
         } catch (error) {
             console.warn('No se pudo guardar el estado local:', error);
@@ -394,6 +417,15 @@ function FinanceProvider({ children }) {
                 await deleteRomaFinanceCostSheet(negocioId, item.id);
             }
 
+            if (item.type === 'inventoryMovement') {
+                const movement = (stateRef.current.inventoryMovements || []).find((row) => row.id === item.id);
+                if (movement) await saveRomaFinanceInventoryMovement(negocioId, movement);
+            }
+
+            if (item.type === 'deleteInventoryMovement') {
+                await deleteRomaFinanceInventoryMovement(negocioId, item.id);
+            }
+
             if (item.type === 'config') {
                 await saveRomaFinanceConfig(negocioId, stateRef.current.config);
             }
@@ -402,24 +434,54 @@ function FinanceProvider({ children }) {
 
     const actions = React.useMemo(() => ({
         async addIncome(entry) {
-            const savedEntry = {
+            const existingEntry = (stateRef.current.incomeEntries || []).find((row) => String(row.id) === String(entry.id));
+            const baseEntry = {
+                ...(existingEntry || {}),
                 ...entry,
-                id: makeId('inc'),
+                id: entry.id || makeId('inc'),
                 date: entry.date || getTodayKey()
             };
+            const savedEntry = buildIncomeFinancialSnapshot(
+                baseEntry,
+                stateRef.current.costSheets || [],
+                stateRef.current.config
+            );
+            const inventoryPlan = planIncomeInventory(stateRef.current, savedEntry);
 
             setState((current) => ({
                 ...current,
-                incomeEntries: [savedEntry, ...(current.incomeEntries || [])]
+                incomeEntries: (current.incomeEntries || []).some((row) => String(row.id) === String(savedEntry.id))
+                    ? (current.incomeEntries || []).map((row) => String(row.id) === String(savedEntry.id) ? savedEntry : row)
+                    : [savedEntry, ...(current.incomeEntries || [])],
+                materials: inventoryPlan.materials,
+                inventoryMovements: inventoryPlan.inventoryMovements
             }));
 
             if (activeBusinessIdRef.current) {
                 try {
-                    await saveRomaFinanceIncome(activeBusinessIdRef.current, savedEntry);
+                    const incomeResult = await saveRomaFinanceIncome(activeBusinessIdRef.current, savedEntry);
+                    applyServerVersion(savedEntry, incomeResult);
+                    for (const movement of inventoryPlan.deletedMovements) {
+                        await deleteRomaFinanceInventoryMovement(activeBusinessIdRef.current, movement.id);
+                    }
+                    for (const material of inventoryPlan.materials) {
+                        const original = (stateRef.current.materials || []).find((row) => String(row.id) === String(material.id));
+                        if (original && toNumber(original.stock) !== toNumber(material.stock)) {
+                            const materialResult = await saveRomaFinanceMaterial(activeBusinessIdRef.current, material);
+                            applyServerVersion(material, materialResult);
+                        }
+                    }
+                    for (const movement of inventoryPlan.newMovements) {
+                        const movementResult = await saveRomaFinanceInventoryMovement(activeBusinessIdRef.current, movement);
+                        applyServerVersion(movement, movementResult);
+                    }
                     setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
                 } catch (error) {
                     console.error('No se pudo guardar el ingreso en Supabase:', error);
                     queueSync({ type: 'income', id: savedEntry.id }, 'Ingreso guardado offline. Sincroniza cuando tengas internet.');
+                    inventoryPlan.newMovements.forEach((movement) => queueSync({ type: 'inventoryMovement', id: movement.id }));
+                    inventoryPlan.deletedMovements.forEach((movement) => queueSync({ type: 'deleteInventoryMovement', id: movement.id }));
+                    inventoryPlan.materials.forEach((material) => queueSync({ type: 'material', id: material.id }));
                 }
             }
 
@@ -427,38 +489,67 @@ function FinanceProvider({ children }) {
         },
 
         async deleteIncome(id) {
+            const linkedMovements = (stateRef.current.inventoryMovements || []).filter((movement) => String(movement.sourceIncomeId || '') === String(id));
+            const restoredMaterials = (stateRef.current.materials || []).map((material) => {
+                const returned = linkedMovements
+                    .filter((movement) => String(movement.materialId) === String(material.id))
+                    .reduce((sum, movement) => sum - toNumber(movement.quantity), 0);
+                return returned > 0 ? { ...material, stock: toNumber(material.stock) + returned } : material;
+            });
             setState((current) => ({
                 ...current,
                 incomeEntries: (current.incomeEntries || []).filter((entry) => String(entry.id) !== String(id)),
+                materials: restoredMaterials,
+                inventoryMovements: (current.inventoryMovements || []).filter((movement) => String(movement.sourceIncomeId || '') !== String(id)),
                 pendingSync: (current.pendingSync || []).filter((item) => !(item.type === 'income' && String(item.id) === String(id)))
             }));
 
             if (activeBusinessIdRef.current) {
                 try {
                     await deleteRomaFinanceIncome(activeBusinessIdRef.current, id);
+                    for (const movement of linkedMovements) {
+                        await deleteRomaFinanceInventoryMovement(activeBusinessIdRef.current, movement.id);
+                    }
+                    for (const material of restoredMaterials) {
+                        const original = (stateRef.current.materials || []).find((row) => String(row.id) === String(material.id));
+                        if (original && toNumber(original.stock) !== toNumber(material.stock)) {
+                            const materialResult = await saveRomaFinanceMaterial(activeBusinessIdRef.current, material);
+                            applyServerVersion(material, materialResult);
+                        }
+                    }
                     setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
                 } catch (error) {
                     console.error('No se pudo eliminar el ingreso en Supabase:', error);
                     queueSync({ type: 'deleteIncome', id }, 'Ingreso eliminado offline. Sincroniza cuando tengas internet.');
+                    linkedMovements.forEach((movement) => queueSync({ type: 'deleteInventoryMovement', id: movement.id }));
+                    restoredMaterials.forEach((material) => queueSync({ type: 'material', id: material.id }));
                 }
             }
         },
 
         async addExpense(entry) {
+            const existingEntry = (stateRef.current.expenseEntries || []).find((row) => String(row.id) === String(entry.id));
+            const money = createMoneySnapshot(entry.amount, entry.currency, stateRef.current.config);
             const savedEntry = {
+                ...(existingEntry || {}),
                 ...entry,
-                id: makeId('exp'),
-                date: entry.date || getTodayKey()
+                id: entry.id || makeId('exp'),
+                date: entry.date || getTodayKey(),
+                rateToMain: money.rateToMain,
+                amountMain: money.amountMain
             };
 
             setState((current) => ({
                 ...current,
-                expenseEntries: [savedEntry, ...(current.expenseEntries || [])]
+                expenseEntries: (current.expenseEntries || []).some((row) => String(row.id) === String(savedEntry.id))
+                    ? (current.expenseEntries || []).map((row) => String(row.id) === String(savedEntry.id) ? savedEntry : row)
+                    : [savedEntry, ...(current.expenseEntries || [])]
             }));
 
             if (activeBusinessIdRef.current) {
                 try {
-                    await saveRomaFinanceExpense(activeBusinessIdRef.current, savedEntry);
+                    const expenseResult = await saveRomaFinanceExpense(activeBusinessIdRef.current, savedEntry);
+                    applyServerVersion(savedEntry, expenseResult);
                     setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
                 } catch (error) {
                     console.error('No se pudo guardar el gasto en Supabase:', error);
@@ -488,7 +579,10 @@ function FinanceProvider({ children }) {
         },
 
         async saveMaterial(material) {
+            const existingMaterial = (stateRef.current.materials || []).find((row) => String(row.id) === String(material.id));
+            const purchaseMoney = createMoneySnapshot(material.cost, material.currency, stateRef.current.config);
             const savedMaterial = {
+                ...(existingMaterial || {}),
                 ...material,
                 id: material.id || makeId('mat'),
                 name: String(material.name || '').trim() || 'Material',
@@ -497,7 +591,12 @@ function FinanceProvider({ children }) {
                 uses: Math.max(toNumber(material.uses), 1),
                 costPerUse: getMaterialCostPerUse(material),
                 unit: material.unit || 'uso',
-                stock: toNumber(material.stock)
+                stock: toNumber(material.stock),
+                purchaseRateToMain: purchaseMoney.rateToMain,
+                purchaseCostMain: purchaseMoney.amountMain,
+                lowStockThreshold: material.lowStockThreshold === '' || material.lowStockThreshold == null
+                    ? null
+                    : Math.max(toNumber(material.lowStockThreshold), 0)
             };
 
             setState((current) => {
@@ -513,7 +612,8 @@ function FinanceProvider({ children }) {
 
             if (activeBusinessIdRef.current) {
                 try {
-                    await saveRomaFinanceMaterial(activeBusinessIdRef.current, savedMaterial);
+                    const materialResult = await saveRomaFinanceMaterial(activeBusinessIdRef.current, savedMaterial);
+                    applyServerVersion(savedMaterial, materialResult);
                     setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
                 } catch (error) {
                     console.error('No se pudo guardar el material en Supabase:', error);
@@ -542,6 +642,49 @@ function FinanceProvider({ children }) {
             }
         },
 
+        async adjustMaterialStock(id, quantityDelta, note = '') {
+            const material = (stateRef.current.materials || []).find((item) => String(item.id) === String(id));
+            if (!material) throw new Error('No se encontró el material.');
+
+            const delta = toNumber(quantityDelta);
+            if (delta === 0) throw new Error('Escribe una cantidad diferente de cero.');
+
+            const updatedMaterial = {
+                ...material,
+                stock: Math.max(toNumber(material.stock) + delta, 0)
+            };
+            const movement = {
+                id: makeId('inv'),
+                materialId: material.id,
+                date: getTodayKey(),
+                movementType: delta > 0 ? 'entrada' : 'salida',
+                quantity: delta,
+                note
+            };
+
+            setState((current) => ({
+                ...current,
+                materials: (current.materials || []).map((item) => String(item.id) === String(id) ? updatedMaterial : item),
+                inventoryMovements: [movement, ...(current.inventoryMovements || [])]
+            }));
+
+            if (activeBusinessIdRef.current) {
+                try {
+                    const materialResult = await saveRomaFinanceMaterial(activeBusinessIdRef.current, updatedMaterial);
+                    applyServerVersion(updatedMaterial, materialResult);
+                    const movementResult = await saveRomaFinanceInventoryMovement(activeBusinessIdRef.current, movement);
+                    applyServerVersion(movement, movementResult);
+                    setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
+                } catch (error) {
+                    console.error('No se pudo guardar el movimiento de inventario:', error);
+                    queueSync({ type: 'material', id: updatedMaterial.id }, 'Movimiento guardado offline. Sincroniza cuando tengas internet.');
+                    queueSync({ type: 'inventoryMovement', id: movement.id }, 'Movimiento guardado offline. Sincroniza cuando tengas internet.');
+                }
+            }
+
+            return movement;
+        },
+
         async saveService(service) {
             const savedService = {
                 ...service,
@@ -568,7 +711,8 @@ function FinanceProvider({ children }) {
 
             if (activeBusinessIdRef.current) {
                 try {
-                    await saveRomaFinanceService(activeBusinessIdRef.current, savedService);
+                    const serviceResult = await saveRomaFinanceService(activeBusinessIdRef.current, savedService);
+                    applyServerVersion(savedService, serviceResult);
                     setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
                 } catch (error) {
                     console.error('No se pudo guardar el servicio en Supabase:', error);
@@ -607,8 +751,14 @@ function FinanceProvider({ children }) {
                 rates: {
                     ...stateRef.current.config.rates,
                     ...(config.rates || {})
-                }
+                },
+                ratesUpdatedAt: config.ratesUpdatedAt || new Date().toISOString()
             };
+
+            const configErrors = validateFinanceConfig(nextConfig);
+            if (configErrors.length > 0) {
+                throw new Error(configErrors[0]);
+            }
 
             setState((current) => ({
                 ...current,
@@ -617,7 +767,8 @@ function FinanceProvider({ children }) {
 
             if (activeBusinessIdRef.current) {
                 try {
-                    await saveRomaFinanceConfig(activeBusinessIdRef.current, nextConfig);
+                    const configResult = await saveRomaFinanceConfig(activeBusinessIdRef.current, nextConfig);
+                    applyServerVersion(nextConfig, configResult);
                     setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
                 } catch (error) {
                     console.error('No se pudo guardar la configuración en Supabase:', error);
@@ -630,7 +781,19 @@ function FinanceProvider({ children }) {
             if (!business) return;
 
             activeBusinessIdRef.current = business.id;
-            const localBusinessState = loadBusinessFinanceState(business);
+            let localBusinessState = loadBusinessFinanceState(business);
+            try {
+                const indexedRecord = await loadFinanceStateFromIndexedDb(business.id);
+                const localUpdatedAt = window.localStorage.getItem(`${getBusinessStorageKey(business.id)}_updated_at`) || '';
+                if (indexedRecord?.state && String(indexedRecord.savedAt || '') >= String(localUpdatedAt)) {
+                    localBusinessState = {
+                        ...hydrateFinanceState(indexedRecord.state),
+                        business: getBusinessInfoForState(business, indexedRecord.state.business)
+                    };
+                }
+            } catch (error) {
+                console.warn('No se pudo leer el respaldo IndexedDB:', error);
+            }
             stateRef.current = localBusinessState;
 
             setState((current) => ({
@@ -642,7 +805,6 @@ function FinanceProvider({ children }) {
 
             try {
                 await pushPendingChanges();
-                await pushLocalFinanceSnapshot(business.id, localBusinessState);
                 const financeState = await loadRomaFinanceData(business);
                 const mergedFinanceState = preserveLocalUnsyncedState(financeState, {
                     ...localBusinessState,
@@ -674,10 +836,13 @@ function FinanceProvider({ children }) {
         async saveCostSheet(sheet) {
             const existingSheet = (stateRef.current.costSheets || []).find((item) => String(item.id) === String(sheet.id));
             const savedSheet = {
+                ...(existingSheet || {}),
                 ...sheet,
                 id: sheet.id || makeId('sheet'),
                 createdAt: sheet.createdAt || existingSheet?.createdAt || new Date().toISOString(),
-                updatedAt: new Date().toISOString()
+                updatedAt: new Date().toISOString(),
+                effectiveFrom: sheet.effectiveFrom || existingSheet?.effectiveFrom || getTodayKey(),
+                rateToMain: getRateToMainCurrency(sheet.saleCurrency || stateRef.current.config.mainCurrency, stateRef.current.config)
             };
 
             setState((current) => ({
@@ -689,7 +854,8 @@ function FinanceProvider({ children }) {
 
             if (activeBusinessIdRef.current) {
                 try {
-                    await saveRomaFinanceCostSheet(activeBusinessIdRef.current, savedSheet);
+                    const sheetResult = await saveRomaFinanceCostSheet(activeBusinessIdRef.current, savedSheet);
+                    applyServerVersion(savedSheet, sheetResult);
                     setState((current) => ({ ...current, syncError: '', syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced' }));
                 } catch (error) {
                     console.error('No se pudo guardar la ficha en Supabase:', error);
@@ -729,9 +895,6 @@ function FinanceProvider({ children }) {
                 await pushPendingChanges();
 
                 const business = stateRef.current.business;
-                if (business?.id) {
-                    await pushLocalFinanceSnapshot(business.id, stateRef.current);
-                }
                 const freshState = business?.id ? await loadRomaFinanceData(business) : {};
                 const mergedFreshState = preserveLocalUnsyncedState(freshState, {
                     ...stateRef.current,

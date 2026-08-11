@@ -10,6 +10,7 @@ function CostSheetFieldRow({ label, children }) {
 function CostSheet({ onBack }) {
     const { state, actions } = useFinanceApp();
     const activeServices = state.services.filter((service) => service.active);
+    const activeServiceSignature = activeServices.map((service) => String(service.id)).join('|');
     const mainCurrency = state.config.mainCurrency;
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -18,7 +19,7 @@ function CostSheet({ onBack }) {
     const [saleCurrency, setSaleCurrency] = React.useState(activeServices[0] ? activeServices[0].currency : mainCurrency);
     const [manualMaterials, setManualMaterials] = React.useState([]);
     const [manualExtras, setManualExtras] = React.useState([]);
-    const [selectedFixedCosts, setSelectedFixedCosts] = React.useState(['rservasroma']);
+    const [selectedFixedCosts, setSelectedFixedCosts] = React.useState([]);
     const [durationMinutes, setDurationMinutes] = React.useState(activeServices[0] ? activeServices[0].duration : 60);
     const [hourlyValue, setHourlyValue] = React.useState(0);
     const [monthlyServiceCount, setMonthlyServiceCount] = React.useState(0);
@@ -40,6 +41,15 @@ function CostSheet({ onBack }) {
         currency: saleCurrency || selectedService.currency || mainCurrency
     } : null;
 
+    React.useEffect(() => {
+        if (activeServices.length === 0) return;
+
+        const serviceStillExists = activeServices.some((service) => String(service.id) === String(selectedServiceId));
+        if (!selectedServiceId || !serviceStillExists) {
+            setSelectedServiceId(activeServices[0].id);
+        }
+    }, [selectedServiceId, activeServiceSignature]);
+
     const monthIncomeCount = (state.incomeEntries || []).filter((entry) => {
         const entryDate = new Date(`${entry.date || getTodayKey()}T00:00:00`);
         return entryDate >= monthStart;
@@ -48,54 +58,52 @@ function CostSheet({ onBack }) {
     const fixedCostOptions = React.useMemo(() => {
         const registeredCosts = (state.expenseEntries || [])
             .filter((entry) => ['fijo', 'herramienta'].includes(normalizeExpenseType(entry.type)))
+            .filter((entry) => {
+                if (normalizeExpenseType(entry.type) === 'herramienta') return true;
+                const entryDate = new Date(`${entry.date || getTodayKey()}T00:00:00`);
+                return entryDate >= monthStart && entryDate <= now;
+            })
             .map((entry) => {
                 const monthlyAmount = getExpenseImpact(entry, state.config, 'month', now);
-                const isRservasRomaExpense = String(entry.id || '').startsWith('gasto_rservasroma_')
-                    || String(entry.description || '').toLowerCase() === 'rservasroma'
-                    || String(entry.category || '').toLowerCase() === 'rservasroma';
                 return {
                     id: entry.id,
                     label: entry.description || entry.category || 'Gasto fijo',
-                    amount: isRservasRomaExpense ? 1000 : monthlyAmount,
-                    currency: isRservasRomaExpense ? 'CUP' : mainCurrency,
+                    amount: monthlyAmount,
+                    currency: mainCurrency,
                     source: normalizeExpenseType(entry.type) === 'herramienta' ? 'Herramienta depreciada' : 'Gasto fijo mensual'
                 };
             })
             .filter((entry) => entry.amount > 0);
-
-        const hasRservasRoma = registeredCosts.some((entry) => String(entry.label).toLowerCase().includes('rservasroma'));
-
-        return [
-            ...(!hasRservasRoma ? [{
-                id: 'rservasroma',
-                label: 'RservasRoma',
-                amount: 1000,
-                currency: 'CUP',
-                source: 'Inversión mensual del sistema'
-            }] : []),
-            ...registeredCosts
-        ];
+        return registeredCosts;
     }, [state.expenseEntries, state.config, mainCurrency]);
 
     const selectedFixedRows = fixedCostOptions.filter((item) => selectedFixedCosts.includes(item.id));
+    const fixedCostSignature = fixedCostOptions.map((item) => String(item.id)).join('|');
     const monthlyBusinessLoad = selectedFixedRows.reduce((sum, item) => (
         sum + convertToMainCurrency(item.amount, item.currency, state.config)
     ), 0);
     const serviceCountForOverhead = Math.max(toNumber(monthlyServiceCount) || monthIncomeCount || 30, 1);
     const overheadPerService = includeOverhead ? monthlyBusinessLoad / serviceCountForOverhead : 0;
 
+    React.useEffect(() => {
+        if (editingSheetId) return;
+        setSelectedFixedCosts((current) => current.length > 0 ? current : fixedCostOptions.map((item) => item.id));
+    }, [fixedCostSignature, selectedServiceId, editingSheetId]);
+
     const manualMaterialCatalog = manualMaterials
         .map((item) => {
             const totalCost = toNumber(item.totalCost);
             const uses = Math.max(toNumber(item.uses), 1);
             return {
-                id: item.id,
+                id: item.productId || item.id,
                 name: String(item.name || '').trim() || 'Material',
                 cost: totalCost,
                 currency: item.currency || mainCurrency,
                 uses,
                 costPerUse: totalCost / uses,
-                unit: 'servicio'
+                unit: 'servicio',
+                purchaseRateToMain: item.purchaseRateToMain,
+                purchaseCostMain: item.purchaseCostMain
             };
         })
         .filter((item) => item.cost > 0);
@@ -128,7 +136,7 @@ function CostSheet({ onBack }) {
         setMonthlyServiceCount(monthIncomeCount || 30);
         setManualMaterials([]);
         setManualExtras([]);
-        setSelectedFixedCosts(['rservasroma']);
+        setSelectedFixedCosts(fixedCostOptions.map((item) => item.id));
         setEditingSheetId('');
         setSavedMessage('');
         setCopyMessage('');
@@ -169,7 +177,7 @@ function CostSheet({ onBack }) {
         if (result.margin >= state.config.desiredMargin) {
             return {
                 title: 'Este servicio deja buena ganancia.',
-                text: 'El precio está por encima del margen que quieres lograr.',
+                text: 'El precio está por encima de la meta que quieres lograr.',
                 className: 'bg-green-50 text-green-700 border-green-100',
                 icon: 'icon-circle-check'
             };
@@ -192,23 +200,32 @@ function CostSheet({ onBack }) {
         ]));
     };
 
+    const toggleSavedMaterial = (product) => {
+        setManualMaterials((current) => {
+            const alreadyAdded = current.some((item) => String(item.productId) === String(product.id));
+            if (alreadyAdded) {
+                return current.filter((item) => String(item.productId) !== String(product.id));
+            }
+
+            return [
+                ...current,
+                {
+                    id: makeId('mat'),
+                    productId: product.id,
+                    name: product.name,
+                    totalCost: product.cost,
+                    currency: product.currency || mainCurrency,
+                    uses: product.uses,
+                    purchaseRateToMain: product.purchaseRateToMain,
+                    purchaseCostMain: product.purchaseCostMain
+                }
+            ];
+        });
+    };
+
     const updateMaterial = (id, field, value) => {
         setManualMaterials((current) => current.map((item) => (
             item.id === id ? { ...item, [field]: value } : item
-        )));
-    };
-
-    const selectSavedMaterial = (id, productId) => {
-        const product = savedMaterials.find((item) => String(item.id) === String(productId));
-        setManualMaterials((current) => current.map((item) => (
-            item.id === id ? {
-                ...item,
-                productId,
-                name: product ? product.name : item.name,
-                totalCost: product ? product.cost : item.totalCost,
-                currency: product ? product.currency : item.currency,
-                uses: product ? product.uses : item.uses
-            } : item
         )));
     };
 
@@ -265,7 +282,7 @@ function CostSheet({ onBack }) {
         if (!selectedService) return '';
 
         return [
-            `Ficha de costo - ${selectedService.name}`,
+            `Cálculo del servicio - ${selectedService.name}`,
             `Precio cobrado: ${formatMoney(result.priceMain, mainCurrency)}`,
             `Materiales: ${formatMoney(result.materialCostMain, mainCurrency)}`,
             `Gastos extra: ${formatMoney(result.extraCostMain, mainCurrency)}`,
@@ -273,7 +290,7 @@ function CostSheet({ onBack }) {
             includeOverhead ? `Gastos fijos repartidos: ${formatMoney(result.overheadCostMain, mainCurrency)}` : '',
             `Costo total: ${formatMoney(result.totalCostMain, mainCurrency)}`,
             `${profitLabel}: ${formatMoney(result.profitMain, mainCurrency)}`,
-            `Margen: ${result.margin.toFixed(1)}%`,
+            `Ganancia en porcentaje: ${result.margin.toFixed(1)}%`,
             `Precio recomendado: ${formatMoney(result.recommendedPriceMain, mainCurrency)}`
         ].filter(Boolean).join('\n');
     };
@@ -320,7 +337,7 @@ function CostSheet({ onBack }) {
                 simpleMode: !showAdvanced
             }
         });
-        setSavedMessage(editingSheetId ? 'Ficha actualizada para este negocio.' : 'Ficha guardada para este negocio.');
+        setSavedMessage(editingSheetId ? 'Cálculo actualizado.' : 'Cálculo guardado.');
         setEditingSheetId('');
     };
 
@@ -349,25 +366,25 @@ function CostSheet({ onBack }) {
         setMonthlyServiceCount(sheet.totals?.monthlyServiceCount || serviceCountForOverhead);
         setShowAdvanced(!sheet.totals?.simpleMode);
         setIncludeOverhead(toNumber(sheet.totals?.overheadCostMain) > 0);
-        setSavedMessage('Ficha cargada para editar. Ajusta los gastos y vuelve a guardar.');
+        setSavedMessage('Cálculo listo para editar. Ajusta lo necesario y vuelve a guardar.');
     };
 
     const deleteSheet = async (sheet) => {
-        const confirmed = window.confirm(`Eliminar la ficha de costo de "${sheet.serviceName || selectedService?.name || 'este servicio'}"?`);
+        const confirmed = window.confirm(`¿Eliminar el cálculo de "${sheet.serviceName || selectedService?.name || 'este servicio'}"?`);
         if (!confirmed) return;
 
         await actions.deleteCostSheet(sheet.id);
-        setSavedMessage('Ficha eliminada.');
+        setSavedMessage('Cálculo eliminado.');
     };
 
     return (
-        <div className="p-4 pb-10 space-y-5" data-name="cost-sheet" data-file="views/CostSheet.js">
+        <div className="cost-sheet-screen p-4 pb-10 space-y-5" data-name="cost-sheet" data-file="views/CostSheet.js">
             <div className="px-1">
-                <p className="text-sm text-gray-600">Calcula rápido si un servicio deja ganancia real.</p>
+                <p className="text-sm text-gray-600">Elige un servicio, añade lo que usas y mira cuánto te queda limpio.</p>
             </div>
 
             <div className="card p-4 space-y-3">
-                <label className="label">1. Servicio</label>
+                <label className="label">Elige el servicio</label>
                 <select
                     className="input-field bg-white"
                     value={selectedServiceId}
@@ -377,13 +394,16 @@ function CostSheet({ onBack }) {
                         <option key={service.id} value={service.id}>{service.name}</option>
                     ))}
                 </select>
+                {activeServices.length === 0 && (
+                    <p className="text-sm text-gray-500">Primero crea un servicio para poder calcular cuánto te deja.</p>
+                )}
             </div>
 
             {selectedService && (
                 <div className="space-y-5">
-                    <div className="card p-4 bg-[var(--primary-light)] border-pink-100 space-y-4">
+                    <div className="price-card space-y-4">
                         <div>
-                            <p className="text-xs font-bold text-[var(--primary-dark)] uppercase mb-1">2. Precio cobrado</p>
+                            <p className="text-xs font-bold text-[var(--primary-dark)] uppercase mb-1">1. Lo que cobras</p>
                             <h2 className="text-xl font-bold text-gray-900">{selectedService.name}</h2>
                             <p className="text-xs text-gray-600">{selectedService.category} - {selectedService.duration} min</p>
                         </div>
@@ -410,106 +430,144 @@ function CostSheet({ onBack }) {
                         <p className="text-xs text-gray-600">Puedes cambiar este precio para probar si conviene cobrar más o menos.</p>
                     </div>
 
-                    <div className="card p-4 space-y-4">
+                    <div className="feature-card p-4 space-y-4">
                         <div className="flex items-start justify-between gap-3">
                             <div>
-                                <p className="text-xs font-bold text-gray-500 uppercase mb-1">3. Materiales usados</p>
-                                <h3 className="font-bold text-gray-900">Nombre, costo y rendimiento</h3>
-                                <p className="text-sm text-gray-600 mt-1">La inversión por servicio se calcula dividiendo el costo entre las citas que rinde.</p>
+                                <p className="text-xs font-bold text-gray-500 uppercase mb-1">2. Lo que usas</p>
+                                <h3 className="font-bold text-gray-900">Productos y materiales</h3>
+                                <p className="text-sm text-gray-600 mt-1">Añade cada producto y para cuántas citas alcanza.</p>
                             </div>
                             <button type="button" onClick={addMaterial} className="text-sm font-bold text-[var(--primary)] bg-pink-50 px-3 py-2 rounded-xl shrink-0">
-                                + Añadir
+                                + {savedMaterials.length > 0 ? 'Otro' : 'Añadir'}
                             </button>
                         </div>
 
+                        {savedMaterials.length > 0 && (
+                            <div>
+                                <p className="text-xs font-bold text-gray-500 mb-2">Toca los productos que usas en este servicio</p>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {savedMaterials.map((product) => {
+                                        const isAdded = manualMaterials.some((item) => String(item.productId) === String(product.id));
+                                        return (
+                                            <button
+                                                key={product.id}
+                                                type="button"
+                                                onClick={() => toggleSavedMaterial(product)}
+                                                className={`rounded-xl border p-3 text-left transition-colors ${isAdded ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'}`}
+                                            >
+                                                <span className="flex items-center justify-between gap-2">
+                                                    <strong className="text-sm text-gray-900 truncate">{product.name}</strong>
+                                                    <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${isAdded ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                                                        <span className={isAdded ? 'icon-check text-xs' : 'icon-plus text-xs'}></span>
+                                                    </span>
+                                                </span>
+                                                <span className="block text-xs text-gray-500 mt-1">{formatMoney(getMaterialCostPerUse(product), product.currency)} por cita</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         {manualMaterials.length === 0 ? (
                             <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 text-sm text-gray-600">
-                                No hay materiales agregados. Toca <strong>Añadir</strong> para poner nombre, costo total y cuántas citas rinde.
+                                {savedMaterials.length > 0 ? 'Elige arriba al menos un producto.' : 'Toca Añadir para escribir el primer producto.'}
                             </div>
                         ) : (
                             <div className="space-y-3">
-                                {manualMaterials.map((item, index) => (
+                                {manualMaterials.map((item, index) => {
+                                    const comesFromCatalog = Boolean(item.productId);
+                                    return (
                                     <div key={item.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-3 space-y-3">
                                         <div className="flex items-center justify-between gap-2">
-                                            <p className="text-xs font-bold text-gray-500 uppercase">Material {index + 1}</p>
+                                            <div>
+                                                <p className="text-xs font-bold text-gray-500 uppercase">Producto {index + 1}</p>
+                                                {comesFromCatalog && <p className="font-bold text-gray-900 mt-1">{item.name}</p>}
+                                            </div>
                                             <button type="button" onClick={() => removeMaterial(item.id)} className="text-xs text-red-600 font-bold px-2 py-1 bg-red-50 rounded-lg">
                                                 Quitar
                                             </button>
                                         </div>
-                                        {savedMaterials.length > 0 && (
-                                            <CostSheetFieldRow label="Producto guardado">
-                                                <select
-                                                    className="input-field bg-white"
-                                                    value={item.productId || ''}
-                                                    onChange={(event) => selectSavedMaterial(item.id, event.target.value)}
-                                                >
-                                                    <option value="">Escribir manualmente</option>
-                                                    {savedMaterials.map((product) => (
-                                                        <option key={product.id} value={product.id}>
-                                                            {product.name} - {formatMoney(getMaterialCostPerUse(product), product.currency)} por uso
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            </CostSheetFieldRow>
+                                        {comesFromCatalog ? (
+                                            <div className="bg-white border border-gray-100 rounded-xl p-3 flex justify-between gap-3">
+                                                <span className="text-sm text-gray-500">Te cuesta en esta cita</span>
+                                                <strong className="text-[var(--primary)]">{formatMoney(getMaterialCostPerService(item), item.currency || mainCurrency)}</strong>
+                                            </div>
+                                        ) : (
+                                            <React.Fragment>
+                                                <CostSheetFieldRow label="Nombre">
+                                                    <input
+                                                        type="text"
+                                                        className="input-field bg-white"
+                                                        placeholder="Ej. Base, top coat, lima"
+                                                        value={item.name}
+                                                        onChange={(event) => updateMaterial(item.id, 'name', event.target.value)}
+                                                    />
+                                                </CostSheetFieldRow>
+                                                <div className="mobile-stack grid grid-cols-[1fr_90px_1fr] gap-2">
+                                                    <CostSheetFieldRow label="Cuánto costó">
+                                                        <input
+                                                            type="text"
+                                                            inputMode="decimal"
+                                                            min="0"
+                                                            className="input-field bg-white font-bold"
+                                                            placeholder="Ej. 1500"
+                                                            value={item.totalCost}
+                                                            onChange={(event) => updateMaterial(item.id, 'totalCost', event.target.value)}
+                                                        />
+                                                    </CostSheetFieldRow>
+                                                    <CostSheetFieldRow label="Moneda">
+                                                        <select
+                                                            className="input-field bg-white"
+                                                            value={item.currency || mainCurrency}
+                                                            onChange={(event) => updateMaterial(item.id, 'currency', event.target.value)}
+                                                        >
+                                                            {SUPPORTED_CURRENCIES.map((currency) => <option key={currency}>{currency}</option>)}
+                                                        </select>
+                                                    </CostSheetFieldRow>
+                                                    <CostSheetFieldRow label="Citas que rinde">
+                                                        <input
+                                                            type="text"
+                                                            inputMode="decimal"
+                                                            min="1"
+                                                            className="input-field bg-white font-bold"
+                                                            placeholder="Ej. 10"
+                                                            value={item.uses}
+                                                            onChange={(event) => updateMaterial(item.id, 'uses', event.target.value)}
+                                                        />
+                                                    </CostSheetFieldRow>
+                                                </div>
+                                                <div className="bg-white border border-gray-100 rounded-xl p-3 flex justify-between gap-3">
+                                                    <span className="text-sm text-gray-500">Te cuesta en esta cita</span>
+                                                    <strong className="text-[var(--primary)]">{formatMoney(getMaterialCostPerService(item), item.currency || mainCurrency)}</strong>
+                                                </div>
+                                            </React.Fragment>
                                         )}
-                                        <CostSheetFieldRow label="Nombre">
-                                            <input
-                                                type="text"
-                                                className="input-field bg-white"
-                                                placeholder="Ej. Base, top coat, lima"
-                                                value={item.name}
-                                                onChange={(event) => updateMaterial(item.id, 'name', event.target.value)}
-                                            />
-                                        </CostSheetFieldRow>
-                                        <div className="mobile-stack grid grid-cols-[1fr_90px_1fr] gap-2">
-                                            <CostSheetFieldRow label="Costo de compra">
-                                                <input
-                                                    type="text"
-                                inputMode="decimal"
-                                                    min="0"
-                                                    className="input-field bg-white font-bold"
-                                                    placeholder="Ej. 1500"
-                                                    value={item.totalCost}
-                                                    onChange={(event) => updateMaterial(item.id, 'totalCost', event.target.value)}
-                                                />
-                                            </CostSheetFieldRow>
-                                            <CostSheetFieldRow label="Moneda">
-                                                <select
-                                                    className="input-field bg-white"
-                                                    value={item.currency || mainCurrency}
-                                                    onChange={(event) => updateMaterial(item.id, 'currency', event.target.value)}
-                                                >
-                                                    {SUPPORTED_CURRENCIES.map((currency) => <option key={currency}>{currency}</option>)}
-                                                </select>
-                                            </CostSheetFieldRow>
-                                            <CostSheetFieldRow label="Rinde citas">
-                                                <input
-                                                    type="text"
-                                inputMode="decimal"
-                                                    min="1"
-                                                    className="input-field bg-white font-bold"
-                                                    placeholder="Ej. 10"
-                                                    value={item.uses}
-                                                    onChange={(event) => updateMaterial(item.id, 'uses', event.target.value)}
-                                                />
-                                            </CostSheetFieldRow>
-                                        </div>
-                                        <div className="bg-white border border-gray-100 rounded-xl p-3 flex justify-between gap-3">
-                                            <span className="text-sm text-gray-500">Inversión por servicio</span>
-                                            <strong className="text-[var(--primary)]">{formatMoney(getMaterialCostPerService(item), item.currency || mainCurrency)}</strong>
-                                        </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
 
-                    <div className="card p-4 space-y-4">
+                    <details className="simple-details">
+                        <summary>
+                            <span className="flex-1">
+                                <span className="block">Otros costos (opcional)</span>
+                                {(result.extraCostMain + result.laborCostMain + result.overheadCostMain) > 0 && (
+                                    <small className="block text-xs font-normal text-gray-500 mt-1">
+                                        Ya incluye {formatMoney(result.extraCostMain + result.laborCostMain + result.overheadCostMain, mainCurrency)}
+                                    </small>
+                                )}
+                            </span>
+                        </summary>
+                        <div className="space-y-4 pt-4">
+                    <div className="rounded-2xl border border-gray-100 bg-white p-4 space-y-4">
                         <div className="flex items-start justify-between gap-3">
                             <div>
-                                <p className="text-xs font-bold text-gray-500 uppercase mb-1">4. Gastos extra</p>
-                                <h3 className="font-bold text-gray-900">Añade todos los gastos del servicio</h3>
-                                <p className="text-sm text-gray-600 mt-1">Agrega todos los que necesites: manuales o gastos ya registrados.</p>
+                                <p className="text-xs font-bold text-gray-500 uppercase mb-1">Gastos de esa cita</p>
+                                <h3 className="font-bold text-gray-900">¿Pagaste algo más?</h3>
+                                <p className="text-sm text-gray-600 mt-1">Por ejemplo transporte, comisión o ayuda.</p>
                             </div>
                             <button type="button" onClick={addExtra} className="text-sm font-bold text-[var(--primary)] bg-pink-50 px-3 py-2 rounded-xl shrink-0">
                                 + Añadir
@@ -592,7 +650,7 @@ function CostSheet({ onBack }) {
                                 onChange={(event) => setIncludeOverhead(event.target.checked)}
                             />
                             <div>
-                                <p className="font-bold text-blue-950">5. Incluir gastos fijos mensuales</p>
+                                <p className="font-bold text-blue-950">Repartir los pagos mensuales</p>
                                 <p className="text-sm text-blue-800 mt-1">
                                     Reparte gastos como RservasRoma, renta, salario, corriente o herramientas entre los servicios del mes.
                                 </p>
@@ -642,7 +700,7 @@ function CostSheet({ onBack }) {
                         className="btn-secondary"
                     >
                         <div className={showAdvanced ? 'icon-chevron-up text-sm' : 'icon-chevron-down text-sm'}></div>
-                        {showAdvanced ? 'Ocultar mano de obra' : 'Añadir mano de obra'}
+                        {showAdvanced ? 'Ocultar valor de tu tiempo' : 'Añadir el valor de tu tiempo'}
                     </button>
 
                     {showAdvanced && (
@@ -680,6 +738,8 @@ function CostSheet({ onBack }) {
                             </div>
                         </div>
                     )}
+                        </div>
+                    </details>
 
                     <div className={`card p-4 border-2 ${alert.className}`}>
                         <div className="flex items-start gap-3">
@@ -691,9 +751,10 @@ function CostSheet({ onBack }) {
                         </div>
                     </div>
 
-                    <div className="card bg-gray-900 text-white p-5 border-none shadow-lg space-y-5">
+                    <div className="profit-hero space-y-5">
+                        <div className="profit-hero__glow"></div>
                         <div>
-                            <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider">Resumen de ganancia</h3>
+                            <h3 className="text-gray-400 text-sm font-medium uppercase tracking-wider">3. Esto te queda limpio</h3>
                             <p className="text-3xl font-black mt-2">{formatMoney(result.profitMain, mainCurrency)}</p>
                             <p className="text-sm text-gray-300">{profitLabel} después de descontar costos.</p>
                         </div>
@@ -704,22 +765,22 @@ function CostSheet({ onBack }) {
                                 <p className="text-lg font-bold">{formatMoney(result.totalCostMain, mainCurrency)}</p>
                             </div>
                             <div className="bg-white/10 rounded-xl p-3">
-                                <p className="text-xs text-gray-400 mb-1">Margen</p>
+                                <p className="text-xs text-gray-400 mb-1">Ganancia en %</p>
                                 <p className="text-lg font-bold">{result.margin.toFixed(1)}%</p>
                             </div>
                             <div className="bg-white/10 rounded-xl p-3">
-                                <p className="text-xs text-gray-400 mb-1">Precio recomendado</p>
+                                <p className="text-xs text-gray-400 mb-1">Precio para tu meta</p>
                                 <p className="text-lg font-bold">{formatMoney(result.recommendedPriceMain, mainCurrency)}</p>
                             </div>
                             <div className="bg-white/10 rounded-xl p-3">
-                                <p className="text-xs text-gray-400 mb-1">Subir mínimo</p>
+                                <p className="text-xs text-gray-400 mb-1">Falta subir</p>
                                 <p className="text-lg font-bold">{formatMoney(recommendedDifference, mainCurrency)}</p>
                             </div>
                         </div>
 
                         <div>
                             <div className="flex justify-between text-xs text-gray-400 mb-2">
-                                <span>Margen actual</span>
+                                <span>Ganancia actual</span>
                                 <span>Meta: {state.config.desiredMargin}%</span>
                             </div>
                             <div className="h-3 rounded-full bg-white/10 overflow-hidden">
@@ -762,7 +823,7 @@ function CostSheet({ onBack }) {
                         </button>
                         <button type="button" onClick={saveSheet} className="btn-primary">
                             <div className="icon-save text-sm"></div>
-                            {editingSheetId ? 'Actualizar ficha' : 'Guardar ficha'}
+                            {editingSheetId ? 'Actualizar cálculo' : 'Guardar cálculo'}
                         </button>
                     </div>
 
@@ -780,7 +841,7 @@ function CostSheet({ onBack }) {
 
                     {savedSheets.length > 0 && (
                         <div className="card p-4">
-                            <h3 className="font-bold text-gray-900 mb-3">Últimas fichas guardadas</h3>
+                            <h3 className="font-bold text-gray-900 mb-3">Últimos cálculos guardados</h3>
                             <div className="space-y-3">
                                 {savedSheets.map((sheet) => (
                                     <div key={sheet.id} className="rounded-xl bg-gray-50 p-3 border border-gray-100">
@@ -799,14 +860,14 @@ function CostSheet({ onBack }) {
                                             onClick={() => editSheet(sheet)}
                                             className="mt-3 w-full text-sm font-bold text-[var(--primary)] bg-pink-50 px-3 py-2 rounded-xl"
                                         >
-                                            Editar ficha
+                                            Editar cálculo
                                         </button>
                                         <button
                                             type="button"
                                             onClick={() => deleteSheet(sheet)}
                                             className="mt-3 w-full text-sm font-bold text-red-700 bg-red-50 px-3 py-2 rounded-xl"
                                         >
-                                            Eliminar ficha
+                                            Eliminar cálculo
                                         </button>
                                     </div>
                                 ))}

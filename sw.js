@@ -1,34 +1,17 @@
-const ROMA_FINANZAS_CACHE = 'roma-finanzas-v19';
+const ROMA_FINANZAS_CACHE = 'roma-finanzas-__ROMA_APP_VERSION__';
+const ROMA_SUPABASE_ORIGIN = '__ROMA_SUPABASE_ORIGIN__';
 
 const LOCAL_ASSETS = [
     './',
     './index.html',
     './manifest.json',
-    './app.js',
-    './utils/supabase.js',
-    './utils/finance.js',
-    './utils/mockData.js',
-    './utils/store.js',
-    './components/BottomNav.js',
-    './components/TopBar.js',
-    './views/Login.js',
-    './views/Dashboard.js',
-    './views/Income.js',
-    './views/Expenses.js',
-    './views/Menu.js',
-    './views/Services.js',
-    './views/Materials.js',
-    './views/CostSheet.js',
-    './views/Config.js',
-    './vendor/bcrypt.min.js',
-    './vendor/react.production.min.js',
-    './vendor/react-dom.production.min.js',
-    './vendor/babel.min.js',
-    './vendor/supabase.min.js',
-    './vendor/tailwind-browser.js',
+    './assets/app.js',
+    './assets/app.css',
+    './assets/register-sw.js',
     './vendor/lucide.css',
     './vendor/lucide.woff2',
     './vendor/lucide.ttf',
+    './vendor/inter-latin.woff2',
     './icons/icon-192x192.png',
     './icons/icon-167x167.png',
     './icons/icon-180x180.png',
@@ -58,7 +41,7 @@ self.addEventListener('fetch', (event) => {
 
     const url = new URL(event.request.url);
     const isNavigation = event.request.mode === 'navigate';
-    const isSupabaseApi = url.hostname.includes('supabase.co');
+    const isSupabaseApi = url.origin === ROMA_SUPABASE_ORIGIN;
 
     if (isSupabaseApi) {
         event.respondWith(fetch(event.request));

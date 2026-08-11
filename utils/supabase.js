@@ -1,87 +1,73 @@
-const ROMA_SUPABASE_URL = 'https://zorhclhvykikaachfrmp.supabase.co';
-const ROMA_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpvcmhjbGh2eWtpa2FhY2hmcm1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxNDQzMzUsImV4cCI6MjA4NzcyMDMzNX0.reauF3UfNTFJFZ3Mnzf8ctYH1d5p7C3msi7AvYJUaos';
+const ROMA_SUPABASE_URL = window.ROMA_CONFIG?.supabaseUrl || '';
+const ROMA_SUPABASE_ANON_KEY = window.ROMA_CONFIG?.supabaseAnonKey || '';
+const ROMA_BACKEND_MODE = window.ROMA_CONFIG?.backendMode || 'standalone-auth';
+const ROMA_SUPABASE_CONFIGURED = window.ROMA_CONFIG?.supabaseConfigured !== false;
+const ROMA_USES_SUPABASE_AUTH = ROMA_BACKEND_MODE === 'standalone-auth';
 const ROMA_SESSION_KEY = 'roma_finanzas_auth_v1';
 const ROMA_SESSION_HOURS = 12;
 
 const romaSupabase = window.supabase.createClient(ROMA_SUPABASE_URL, ROMA_SUPABASE_ANON_KEY, {
     auth: {
-        persistSession: false,
-        autoRefreshToken: false,
+        persistSession: ROMA_USES_SUPABASE_AUTH,
+        autoRefreshToken: ROMA_USES_SUPABASE_AUTH,
         detectSessionInUrl: false
     }
 });
 
-window.romaSupabase = romaSupabase;
-
 const ROMA_FINANZAS_DENIED_STATES = ['sin_acceso', 'vencido', 'bloqueado'];
 
-function buildRomaBusinessSelect(includeFinanceFields = true) {
-    const base = 'id,nombre,email,telefono,slug,plan,logo_url,password_hash';
-    if (!includeFinanceFields) return base;
-    return `${base},acceso_finanzas,estado_finanzas,fecha_vencimiento_finanzas`;
+async function loginRomaFinanzasWithRpc(username, password) {
+    const { data, error } = await romaSupabase.rpc('login_roma_finanzas', {
+        p_username: username,
+        p_password: password
+    });
+
+    if (error) throw error;
+
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result?.business) return null;
+
+    const business = sanitizeBusinessForSession(result.business);
+    const token = result.token || '';
+    const expiresAt = result.expires_at || '';
+
+    return {
+        session: saveRomaSession(business, token, expiresAt),
+        user: { username, email: business.email || '', businessId: business.id },
+        business
+    };
 }
 
-async function queryRomaBusinessByLogin(username, includeFinanceFields = true) {
-    const normalized = String(username || '').trim().toLowerCase();
-    if (!normalized) return null;
+async function startRomaFinanzasAuthSession(authUser) {
+    const { data, error } = await romaSupabase.rpc('start_roma_finanzas_auth_session');
+    if (error) throw error;
 
-    let response = await romaSupabase
-        .from('negocios')
-        .select(buildRomaBusinessSelect(includeFinanceFields))
-        .eq('slug', normalized)
-        .limit(1);
-
-    if (response.error) throw response.error;
-    if (Array.isArray(response.data) && response.data.length > 0) return response.data[0];
-
-    response = await romaSupabase
-        .from('negocios')
-        .select(buildRomaBusinessSelect(includeFinanceFields))
-        .eq('usuario', normalized)
-        .limit(1);
-
-    if (response.error) {
-        if (response.error.code === '42703' || String(response.error.message || '').toLowerCase().includes('usuario')) {
-            return null;
-        }
-        throw response.error;
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result?.business || !result?.token) {
+        throw new Error('Tu usuario no está vinculado a un negocio de Roma Finanzas.');
     }
 
-    return Array.isArray(response.data) && response.data.length > 0 ? response.data[0] : null;
+    const business = sanitizeBusinessForSession(result.business);
+    return {
+        session: saveRomaSession(business, result.token, result.expires_at || ''),
+        user: {
+            username: authUser?.email || business.slug || '',
+            email: authUser?.email || business.email || '',
+            businessId: business.id
+        },
+        business
+    };
 }
 
-async function fetchRomaBusinessById(id) {
-    if (!id) return null;
-
-    let response = await romaSupabase
-        .from('negocios')
-        .select(buildRomaBusinessSelect(true))
-        .eq('id', id)
-        .limit(1)
-        .maybeSingle();
-
-    if (response.error && (response.error.code === 'PGRST204' || String(response.error.message || '').toLowerCase().includes('column'))) {
-        response = await romaSupabase
-            .from('negocios')
-            .select(buildRomaBusinessSelect(false))
-            .eq('id', id)
-            .limit(1)
-            .maybeSingle();
+function friendlySupabaseAuthError(error) {
+    const message = String(error?.message || '').toLowerCase();
+    if (message.includes('invalid login credentials')) return 'Correo o contraseña incorrectos.';
+    if (message.includes('email not confirmed')) return 'Confirma tu correo antes de entrar.';
+    if (message.includes('user not found')) return 'No existe una cuenta con ese correo.';
+    if (message.includes('failed to fetch') || message.includes('network')) {
+        return 'No pudimos conectar con Roma Finanzas. Revisa tu internet e inténtalo otra vez.';
     }
-
-    if (response.error) throw response.error;
-    return response.data || null;
-}
-
-async function fetchRomaBusinessByLogin(username) {
-    try {
-        return await queryRomaBusinessByLogin(username, true);
-    } catch (error) {
-        if (error.code === 'PGRST204' || String(error.message || '').toLowerCase().includes('column')) {
-            return await queryRomaBusinessByLogin(username, false);
-        }
-        throw error;
-    }
+    return error?.message || 'No se pudo entrar.';
 }
 
 function canUseRomaFinanzas(business) {
@@ -106,11 +92,13 @@ function sanitizeBusinessForSession(business) {
     return safeBusiness;
 }
 
-function saveRomaSession(business) {
+function saveRomaSession(business, token = '', expiresAt = '') {
     const session = {
         businessId: business.id,
         slug: business.slug,
         business: sanitizeBusinessForSession(business),
+        token,
+        expiresAt,
         loginTime: Date.now()
     };
     window.localStorage.setItem(ROMA_SESSION_KEY, JSON.stringify(session));
@@ -124,7 +112,9 @@ function readRomaSession() {
 
         const session = JSON.parse(raw);
         const maxAge = ROMA_SESSION_HOURS * 60 * 60 * 1000;
-        if (!session.loginTime || Date.now() - Number(session.loginTime) > maxAge) {
+        const tokenExpired = session.expiresAt
+            && new Date(session.expiresAt).getTime() <= Date.now();
+        if (!session.loginTime || Date.now() - Number(session.loginTime) > maxAge || tokenExpired) {
             window.localStorage.removeItem(ROMA_SESSION_KEY);
             return null;
         }
@@ -138,52 +128,127 @@ function readRomaSession() {
 
 async function loginRomaFinanzas(username, password) {
     const cleanUsername = String(username || '').trim().toLowerCase();
-    const cleanPassword = String(password || '').trim();
+    const cleanPassword = String(password || '');
 
     if (!cleanUsername || !cleanPassword) {
-        throw new Error('Escribe tu usuario y contraseña.');
+        throw new Error(ROMA_USES_SUPABASE_AUTH
+            ? 'Escribe tu correo y contraseña.'
+            : 'Escribe tu usuario y contraseña.');
     }
 
-    if (typeof bcrypt === 'undefined') {
-        throw new Error('No se cargó el verificador de contraseña.');
+    if (ROMA_USES_SUPABASE_AUTH) {
+        if (!ROMA_SUPABASE_CONFIGURED) {
+            throw new Error('Falta conectar el proyecto nuevo de Supabase en .env.local.');
+        }
+
+        const { data, error } = await romaSupabase.auth.signInWithPassword({
+            email: cleanUsername,
+            password: cleanPassword
+        });
+        if (error) throw new Error(friendlySupabaseAuthError(error));
+
+        try {
+            return await startRomaFinanzasAuthSession(data.user);
+        } catch (sessionError) {
+            await romaSupabase.auth.signOut({ scope: 'local' });
+            throw new Error(friendlySupabaseAuthError(sessionError));
+        }
     }
 
-    const business = await fetchRomaBusinessByLogin(cleanUsername);
+    try {
+        const rpcResult = await loginRomaFinanzasWithRpc(cleanUsername, cleanPassword);
+        if (rpcResult) return rpcResult;
+    } catch (error) {
+        const message = String(error?.message || '').toLowerCase();
+        const isMissingRpc = error?.code === '42883'
+            || error?.code === 'PGRST202'
+            || message.includes('function')
+            || message.includes('schema cache');
 
-    if (!business) {
-        throw new Error('Usuario no encontrado.');
+        if (!isMissingRpc) throw error;
+        throw new Error('Roma Finanzas necesita aplicar la migración segura de Supabase antes de iniciar sesión.');
     }
-
-    if (!business.password_hash) {
-        throw new Error('Este negocio no tiene contraseña configurada.');
-    }
-
-    const passwordValid = bcrypt.compareSync(cleanPassword, business.password_hash);
-    if (!passwordValid) {
-        throw new Error('Contraseña incorrecta.');
-    }
-
-    if (!canUseRomaFinanzas(business)) {
-        throw new Error('Este negocio aun no tiene acceso activo a Roma Finanzas.');
-    }
-
-    const session = saveRomaSession(business);
-
-    return {
-        session,
-        user: { username: cleanUsername, email: business.email || '', businessId: business.id },
-        business: sanitizeBusinessForSession(business)
-    };
 }
 
 async function getRomaAuthSession() {
-    const session = readRomaSession();
+    let session = readRomaSession();
+
+    if (ROMA_USES_SUPABASE_AUTH) {
+        if (!ROMA_SUPABASE_CONFIGURED) {
+            return { session: null, user: null, business: null };
+        }
+
+        const { data, error } = await romaSupabase.auth.getSession();
+        if (error) throw error;
+        const authSession = data?.session || null;
+
+        if (!authSession) {
+            window.localStorage.removeItem(ROMA_SESSION_KEY);
+            return { session: null, user: null, business: null };
+        }
+
+        try {
+            let business = null;
+            if (session?.token) {
+                const resume = await romaSupabase.rpc('resume_roma_finanzas_session', {
+                    p_token: session.token
+                });
+                if (resume.error) throw resume.error;
+                const result = Array.isArray(resume.data) ? resume.data[0] : resume.data;
+                business = result?.business || null;
+            }
+
+            if (!business) {
+                return startRomaFinanzasAuthSession(authSession.user);
+            }
+
+            session = saveRomaSession(business, session.token, session.expiresAt || '');
+            return {
+                session,
+                user: {
+                    username: authSession.user?.email || business.slug || '',
+                    email: authSession.user?.email || business.email || '',
+                    businessId: business.id
+                },
+                business: sanitizeBusinessForSession(business)
+            };
+        } catch (sessionError) {
+            if (navigator.onLine === false && session?.business) {
+                return {
+                    session,
+                    user: {
+                        username: authSession.user?.email || session.business.slug || '',
+                        email: authSession.user?.email || session.business.email || '',
+                        businessId: session.businessId
+                    },
+                    business: session.business
+                };
+            }
+            window.localStorage.removeItem(ROMA_SESSION_KEY);
+            throw sessionError;
+        }
+    }
+
     if (!session) {
         return { session: null, user: null, business: null };
     }
 
     try {
-        const business = await fetchRomaBusinessById(session.businessId);
+        let business = null;
+
+        if (session.token) {
+            const { data, error } = await romaSupabase.rpc('resume_roma_finanzas_session', {
+                p_token: session.token
+            });
+            if (error) throw error;
+            const result = Array.isArray(data) ? data[0] : data;
+            business = result?.business || null;
+        } else if (navigator.onLine === false && session.business) {
+            business = session.business;
+        } else {
+            window.localStorage.removeItem(ROMA_SESSION_KEY);
+            return { session: null, user: null, business: null };
+        }
         if (!business || !canUseRomaFinanzas(business)) {
             window.localStorage.removeItem(ROMA_SESSION_KEY);
             return { session: null, user: null, business: null };
@@ -195,6 +260,19 @@ async function getRomaAuthSession() {
             business: sanitizeBusinessForSession(business)
         };
     } catch (error) {
+        const message = String(error?.message || '').toLowerCase();
+        const accessWasRejected = error?.code === '28000'
+            || message.includes('sesion vencio')
+            || message.includes('sesión venció')
+            || message.includes('no tiene acceso activo')
+            || message.includes('sesion invalida')
+            || message.includes('sesión inválida');
+
+        if (accessWasRejected) {
+            window.localStorage.removeItem(ROMA_SESSION_KEY);
+            return { session: null, user: null, business: null };
+        }
+
         if (session.business) {
             return {
                 session,
@@ -212,7 +290,55 @@ async function getRomaAuthSession() {
 }
 
 async function logoutRomaFinanzas() {
+    const session = readRomaSession();
+    if (session?.token && navigator.onLine !== false) {
+        try {
+            await romaSupabase.rpc('logout_roma_finanzas', { p_token: session.token });
+        } catch (error) {
+            console.warn('No se pudo cerrar la sesión remota:', error);
+        }
+    }
     window.localStorage.removeItem(ROMA_SESSION_KEY);
+    if (ROMA_USES_SUPABASE_AUTH) {
+        try {
+            await romaSupabase.auth.signOut();
+        } catch (error) {
+            console.warn('No se pudo cerrar la sesión de Supabase:', error);
+        }
+    }
+}
+
+function getRomaSessionToken() {
+    return readRomaSession()?.token || '';
+}
+
+async function applyRomaFinanceChange(operation, payload) {
+    const token = getRomaSessionToken();
+    if (!token) return null;
+
+    const { data, error } = await romaSupabase.rpc('apply_roma_finanzas_change', {
+        p_token: token,
+        p_operation: operation,
+        p_payload: payload || {}
+    });
+    if (error) throw error;
+    return Array.isArray(data) ? data[0] : data;
+}
+
+async function saveRomaFinanceIncomeWithTip(payload) {
+    const token = getRomaSessionToken();
+    if (!token) return null;
+
+    if (!ROMA_USES_SUPABASE_AUTH) {
+        return applyRomaFinanceChange('save_income', payload);
+    }
+
+    const { data, error } = await romaSupabase.rpc('save_roma_finanzas_income', {
+        p_token: token,
+        p_payload: payload || {}
+    });
+    if (error) throw error;
+    return Array.isArray(data) ? data[0] : data;
 }
 
 function mapFinanceServiceFromDb(row) {
@@ -224,7 +350,11 @@ function mapFinanceServiceFromDb(row) {
         duration: toNumber(row.duration) || 60,
         currency: row.currency || 'CUP',
         active: row.active !== false,
-        defaultMaterials: Array.isArray(row.default_materials) ? row.default_materials : []
+        defaultMaterials: Array.isArray(row.default_materials) ? row.default_materials : [],
+        source: row.source || 'manual',
+        sourceServiceId: row.source_service_id || '',
+        version: toNumber(row.version) || 1,
+        updatedAt: row.updated_at || ''
     };
 }
 
@@ -239,7 +369,9 @@ function mapBusinessServiceToFinance(row, config = {}) {
         duration: toNumber(row.duracion) || 60,
         currency: mainCurrency,
         active: row.activo !== false,
-        defaultMaterials: []
+        defaultMaterials: [],
+        source: 'rservasroma',
+        sourceServiceId: String(row.id)
     };
 }
 
@@ -252,11 +384,17 @@ function mapFinanceMaterialFromDb(row) {
         uses: toNumber(row.uses) || 1,
         costPerUse: toNumber(row.cost_per_use),
         unit: row.unit || 'uso',
-        stock: toNumber(row.stock)
+        stock: toNumber(row.stock),
+        purchaseRateToMain: row.purchase_rate_to_main == null ? null : toNumber(row.purchase_rate_to_main),
+        purchaseCostMain: row.purchase_cost_main == null ? null : toNumber(row.purchase_cost_main),
+        lowStockThreshold: row.low_stock_threshold == null ? null : toNumber(row.low_stock_threshold),
+        version: toNumber(row.version) || 1,
+        updatedAt: row.updated_at || ''
     };
 }
 
 function mapFinanceIncomeFromDb(row) {
+    const hasMoneySnapshot = toNumber(row.amount_main) > 0 || toNumber(row.amount) === 0;
     return {
         id: row.id,
         date: row.date,
@@ -264,8 +402,22 @@ function mapFinanceIncomeFromDb(row) {
         client: row.client || '',
         amount: toNumber(row.amount),
         currency: row.currency || 'CUP',
+        rateToMain: hasMoneySnapshot ? (toNumber(row.rate_to_main) || 1) : 0,
+        amountMain: toNumber(row.amount_main),
+        tipAmount: toNumber(row.tip_amount),
+        tipCurrency: row.tip_currency || row.currency || 'CUP',
+        tipRateToMain: toNumber(row.tip_rate_to_main),
+        tipAmountMain: toNumber(row.tip_amount_main),
+        unitCostMain: toNumber(row.unit_cost_main),
+        profitMain: toNumber(row.profit_main),
+        margin: toNumber(row.margin),
+        costSheetId: row.cost_sheet_id || '',
         paymentMethod: row.payment_method || 'Efectivo',
-        note: row.note || ''
+        note: row.note || '',
+        source: row.source || 'manual',
+        bookingId: row.booking_id || '',
+        version: toNumber(row.version) || 1,
+        updatedAt: row.updated_at || ''
     };
 }
 
@@ -292,103 +444,42 @@ function mapBookingToFinanceIncome(row, services = [], config = {}) {
         client: row.cliente_nombre || '',
         amount,
         currency,
+        rateToMain: 0,
+        amountMain: 0,
+        tipAmount: 0,
+        tipCurrency: currency,
+        tipRateToMain: 0,
+        tipAmountMain: 0,
+        unitCostMain: 0,
+        profitMain: 0,
+        margin: 0,
         paymentMethod: row.monto_cobrado ? 'Cobro real' : 'Reserva completada',
-        note: `Cita ${row.estado || ''}`.trim()
+        note: `Cita ${row.estado || ''}`.trim(),
+        source: 'reserva',
+        bookingId: String(row.id)
     };
 }
 
 function mapFinanceExpenseFromDb(row) {
-    const isRservasRomaExpense = String(row.id || '').startsWith('gasto_rservasroma_')
-        || String(row.category || '').toLowerCase() === 'rservasroma'
-        || String(row.description || '').toLowerCase() === 'rservasroma';
+    const normalizedAmount = toNumber(row.amount);
+    const hasMoneySnapshot = toNumber(row.amount_main) > 0 || normalizedAmount === 0;
 
     return {
         id: row.id,
         date: row.date,
-        category: isRservasRomaExpense ? 'RservasRoma' : (row.category || 'Otro'),
-        description: isRservasRomaExpense ? 'RservasRoma' : (row.description || ''),
-        amount: isRservasRomaExpense ? 1000 : toNumber(row.amount),
-        currency: isRservasRomaExpense ? 'CUP' : (row.currency || 'CUP'),
-        type: isRservasRomaExpense ? 'fijo' : (row.type || 'cotidiano'),
+        category: row.category || 'Otro',
+        description: row.description || '',
+        amount: normalizedAmount,
+        currency: row.currency || 'CUP',
+        rateToMain: hasMoneySnapshot ? (toNumber(row.rate_to_main) || 1) : 0,
+        amountMain: toNumber(row.amount_main),
+        type: row.type || 'cotidiano',
         usefulLifeMonths: toNumber(row.useful_life_months),
-        depreciationNote: row.depreciation_note || ''
+        depreciationNote: row.depreciation_note || '',
+        recurringKey: row.recurring_key || '',
+        version: toNumber(row.version) || 1,
+        updatedAt: row.updated_at || ''
     };
-}
-
-function getRservasRomaMonthlyExpenseId(date = new Date()) {
-    const monthKey = date.toISOString().slice(0, 7).replace('-', '_');
-    return `gasto_rservasroma_${monthKey}`;
-}
-
-function buildRservasRomaMonthlyExpense(date = new Date()) {
-    return {
-        id: getRservasRomaMonthlyExpenseId(date),
-        date: date.toISOString().slice(0, 10),
-        category: 'RservasRoma',
-        description: 'RservasRoma',
-        amount: 1000,
-        currency: 'CUP',
-        type: 'fijo',
-        usefulLifeMonths: 0,
-        depreciationNote: ''
-    };
-}
-
-async function ensureRservasRomaMonthlyExpense(business, expenseRows = []) {
-    const defaultExpense = buildRservasRomaMonthlyExpense();
-    const exists = (expenseRows || []).some((row) => String(row.id) === String(defaultExpense.id));
-
-    if (exists) {
-        const normalizedRows = (expenseRows || []).map((row) => (
-            String(row.id) === String(defaultExpense.id)
-                ? {
-                    ...row,
-                    category: defaultExpense.category,
-                    description: defaultExpense.description,
-                    amount: defaultExpense.amount,
-                    currency: defaultExpense.currency,
-                    type: defaultExpense.type,
-                    useful_life_months: null
-                }
-                : row
-        ));
-
-        const existingRow = (expenseRows || []).find((row) => String(row.id) === String(defaultExpense.id));
-        if (
-            toNumber(existingRow?.amount) !== defaultExpense.amount
-            || String(existingRow?.currency || '').toUpperCase() !== defaultExpense.currency
-            || String(existingRow?.type || '') !== defaultExpense.type
-        ) {
-            try {
-                await saveRomaFinanceExpense(business.id, defaultExpense);
-            } catch (error) {
-                console.warn('No se pudo normalizar el gasto fijo de RservasRoma en Supabase:', error);
-            }
-        }
-
-        return normalizedRows;
-    }
-
-    try {
-        await saveRomaFinanceExpense(business.id, defaultExpense);
-    } catch (error) {
-        console.warn('No se pudo crear el gasto fijo de RservasRoma en Supabase:', error);
-    }
-
-    return [
-        {
-            negocio_id: business.id,
-            id: defaultExpense.id,
-            date: defaultExpense.date,
-            category: defaultExpense.category,
-            description: defaultExpense.description,
-            amount: defaultExpense.amount,
-            currency: defaultExpense.currency,
-            type: defaultExpense.type,
-            useful_life_months: null
-        },
-        ...(expenseRows || [])
-    ];
 }
 
 function mapFinanceSheetFromDb(row) {
@@ -398,10 +489,64 @@ function mapFinanceSheetFromDb(row) {
         serviceName: row.service_name || '',
         materialUsages: Array.isArray(row.material_usages) ? row.material_usages : [],
         extraExpenses: Array.isArray(row.extra_expenses) ? row.extra_expenses : [],
+        fixedCostUsages: Array.isArray(row.fixed_cost_usages) ? row.fixed_cost_usages : [],
         salePrice: toNumber(row.sale_price),
         saleCurrency: row.sale_currency || 'CUP',
+        rateToMain: row.rate_to_main == null ? null : toNumber(row.rate_to_main),
         totals: row.totals || {},
-        createdAt: row.created_at
+        effectiveFrom: row.effective_from || (row.created_at || '').slice(0, 10),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at || row.created_at,
+        version: toNumber(row.version) || 1
+    };
+}
+
+function mapInventoryMovementFromDb(row) {
+    return {
+        id: row.id,
+        materialId: row.material_id,
+        date: row.date,
+        movementType: row.movement_type,
+        quantity: toNumber(row.quantity),
+        note: row.note || '',
+        sourceIncomeId: row.source_income_id || '',
+        version: toNumber(row.version) || 1,
+        updatedAt: row.updated_at || ''
+    };
+}
+
+function getApplicableCostSheet(serviceId, date, costSheets = []) {
+    const dateKey = date || getTodayKey();
+    return (costSheets || [])
+        .filter((sheet) => String(sheet.serviceId) === String(serviceId))
+        .filter((sheet) => (sheet.effectiveFrom || (sheet.createdAt || '').slice(0, 10) || dateKey) <= dateKey)
+        .sort((a, b) => String(b.effectiveFrom || b.createdAt || '').localeCompare(String(a.effectiveFrom || a.createdAt || '')))[0] || null;
+}
+
+function buildIncomeFinancialSnapshot(entry, costSheets, config) {
+    const money = createMoneySnapshot(entry.amount, entry.currency, config);
+    const tipMoney = createMoneySnapshot(
+        Math.max(toNumber(entry.tipAmount), 0),
+        entry.tipCurrency || entry.currency,
+        config
+    );
+    const sheet = getApplicableCostSheet(entry.serviceId, entry.date, costSheets);
+    const unitCostMain = sheet ? toNumber(sheet.totals?.totalCostMain) : 0;
+    const profitMain = money.amountMain - unitCostMain;
+    const margin = money.amountMain > 0 ? (profitMain / money.amountMain) * 100 : 0;
+
+    return {
+        ...entry,
+        rateToMain: money.rateToMain,
+        amountMain: money.amountMain,
+        tipAmount: tipMoney.amount,
+        tipCurrency: tipMoney.currency,
+        tipRateToMain: tipMoney.rateToMain,
+        tipAmountMain: tipMoney.amountMain,
+        unitCostMain,
+        profitMain,
+        margin,
+        costSheetId: sheet?.id || ''
     };
 }
 
@@ -459,13 +604,14 @@ async function seedRomaFinanceDataIfNeeded(business, services, materials, config
     return { services: seededServices, materials: seededMaterials };
 }
 
-async function syncRomaFinanceServicesFromBusiness(business, currentServices = [], config = {}) {
-    const businessServicesResponse = await romaSupabase
-        .from('servicios')
-        .select('id,nombre,categoria,precio,duracion,activo')
-        .eq('negocio_id', business.id)
-        .eq('activo', true)
-        .order('id', { ascending: true });
+async function syncRomaFinanceServicesFromBusiness(business, currentServices = [], config = {}, catalogRows = null) {
+    const businessServicesResponse = Array.isArray(catalogRows)
+        ? { data: catalogRows, error: null }
+        : await romaSupabase
+            .from('servicios')
+            .select('id,nombre,categoria,precio,duracion,activo')
+            .eq('negocio_id', business.id)
+            .order('id', { ascending: true });
 
     if (businessServicesResponse.error) throw businessServicesResponse.error;
 
@@ -481,27 +627,72 @@ async function syncRomaFinanceServicesFromBusiness(business, currentServices = [
             price: existing ? toNumber(existing.price) : service.price,
             duration: service.duration,
             currency: existing?.currency || service.currency,
-            active: existing ? existing.active !== false : service.active !== false,
+            active: service.active !== false,
             default_materials: existing?.default_materials || existing?.defaultMaterials || [],
+            source: 'rservasroma',
+            source_service_id: service.sourceServiceId || String(service.id).replace(/^servicio_/, ''),
             updated_at: new Date().toISOString()
         };
     });
 
-    if (serviceRows.length === 0) return [];
-    return serviceRows;
+    const importedIds = new Set(serviceRows.map((service) => String(service.id)));
+    const ownFinanceRows = (currentServices || [])
+        .filter((service) => service?.id && !importedIds.has(String(service.id)) && (service.source || 'manual') !== 'rservasroma')
+        .map((service) => ({
+            negocio_id: business.id,
+            id: service.id,
+            name: service.name || 'Servicio',
+            category: service.category || 'General',
+            price: toNumber(service.price),
+            duration: Math.max(toNumber(service.duration), 1),
+            currency: service.currency || config.mainCurrency || 'CUP',
+            active: service.active !== false,
+            default_materials: service.default_materials || service.defaultMaterials || [],
+            source: service.source || 'manual',
+            source_service_id: service.source_service_id || service.sourceServiceId || null,
+            updated_at: service.updated_at || new Date().toISOString()
+        }));
+
+    return [...serviceRows, ...ownFinanceRows];
 }
 
 async function loadRomaFinanceData(business) {
     if (!business?.id) throw new Error('No hay negocio activo para cargar finanzas.');
 
-    const [configResponse, servicesResponse, materialsResponse, incomeResponse, expensesResponse, sheetsResponse] = await Promise.all([
-        romaSupabase.from('roma_finanzas_config').select('*').eq('negocio_id', business.id).maybeSingle(),
-        romaSupabase.from('roma_finanzas_services').select('*').eq('negocio_id', business.id).order('created_at', { ascending: true }),
-        romaSupabase.from('roma_finanzas_materials').select('*').eq('negocio_id', business.id).order('created_at', { ascending: true }),
-        romaSupabase.from('roma_finanzas_ingresos').select('*').eq('negocio_id', business.id).order('date', { ascending: false }).order('created_at', { ascending: false }),
-        romaSupabase.from('roma_finanzas_gastos').select('*').eq('negocio_id', business.id).order('date', { ascending: false }).order('created_at', { ascending: false }),
-        romaSupabase.from('roma_finanzas_fichas_costo').select('*').eq('negocio_id', business.id).order('created_at', { ascending: false })
-    ]);
+    const token = getRomaSessionToken();
+    let catalogServices = null;
+    let completedBookings = null;
+    let inventoryRows = [];
+    let configResponse;
+    let servicesResponse;
+    let materialsResponse;
+    let incomeResponse;
+    let expensesResponse;
+    let sheetsResponse;
+
+    if (token) {
+        const { data, error } = await romaSupabase.rpc('load_roma_finanzas', { p_token: token });
+        if (error) throw error;
+        const bundle = Array.isArray(data) ? data[0] : (data || {});
+        configResponse = { data: Object.keys(bundle.config || {}).length ? bundle.config : null, error: null };
+        servicesResponse = { data: bundle.services || [], error: null };
+        materialsResponse = { data: bundle.materials || [], error: null };
+        incomeResponse = { data: bundle.income_entries || [], error: null };
+        expensesResponse = { data: bundle.expense_entries || [], error: null };
+        sheetsResponse = { data: bundle.cost_sheets || [], error: null };
+        inventoryRows = bundle.inventory_movements || [];
+        catalogServices = bundle.catalog_services || [];
+        completedBookings = bundle.completed_bookings || [];
+    } else {
+        [configResponse, servicesResponse, materialsResponse, incomeResponse, expensesResponse, sheetsResponse] = await Promise.all([
+            romaSupabase.from('roma_finanzas_config').select('*').eq('negocio_id', business.id).maybeSingle(),
+            romaSupabase.from('roma_finanzas_services').select('*').eq('negocio_id', business.id).order('created_at', { ascending: true }),
+            romaSupabase.from('roma_finanzas_materials').select('*').eq('negocio_id', business.id).order('created_at', { ascending: true }),
+            romaSupabase.from('roma_finanzas_ingresos').select('*').eq('negocio_id', business.id).order('date', { ascending: false }).order('created_at', { ascending: false }),
+            romaSupabase.from('roma_finanzas_gastos').select('*').eq('negocio_id', business.id).order('date', { ascending: false }).order('created_at', { ascending: false }),
+            romaSupabase.from('roma_finanzas_fichas_costo').select('*').eq('negocio_id', business.id).order('created_at', { ascending: false })
+        ]);
+    }
 
     const responses = [configResponse, servicesResponse, materialsResponse, incomeResponse, expensesResponse, sheetsResponse];
     const tableError = responses.find((response) => response.error);
@@ -511,64 +702,90 @@ async function loadRomaFinanceData(business) {
     const config = configResponse.data ? {
         mainCurrency: configResponse.data.main_currency || 'CUP',
         desiredMargin: toNumber(configResponse.data.desired_margin) || 60,
+        ratesUpdatedAt: configResponse.data.rates_updated_at || '',
+        version: toNumber(configResponse.data.version) || 1,
         rates: {
             ...seed.config.rates,
             ...(configResponse.data.rates || {})
         }
     } : seed.config;
 
-    const seeded = await seedRomaFinanceDataIfNeeded(
-        business,
-        servicesResponse.data,
-        materialsResponse.data,
-        config
-    );
-
     const syncedServiceRows = await syncRomaFinanceServicesFromBusiness(
         business,
-        seeded.services || servicesResponse.data || [],
-        config
+        servicesResponse.data || [],
+        config,
+        catalogServices
     );
 
-    const financeServices = (syncedServiceRows || []).length > 0
-        ? syncedServiceRows.map(mapFinanceServiceFromDb)
-        : seed.services;
-    const bookingIncomeResponse = await romaSupabase
-        .from('reservas')
-        .select('id,fecha,cliente_nombre,servicio,estado,monto_cobrado,precio_final,precio_original')
-        .eq('negocio_id', business.id)
-        .eq('estado', 'Completado')
-        .order('fecha', { ascending: false })
-        .limit(500);
+    const financeServices = (syncedServiceRows || []).map(mapFinanceServiceFromDb);
+    const mappedCostSheets = (sheetsResponse.data || []).map(mapFinanceSheetFromDb);
+    const bookingIncomeResponse = Array.isArray(completedBookings)
+        ? { data: completedBookings, error: null }
+        : await romaSupabase
+            .from('reservas')
+            .select('id,fecha,cliente_nombre,servicio,estado,monto_cobrado,precio_final,precio_original')
+            .eq('negocio_id', business.id)
+            .eq('estado', 'Completado')
+            .order('fecha', { ascending: false })
+            .limit(2000);
 
     if (bookingIncomeResponse.error) throw bookingIncomeResponse.error;
 
     const bookingIncomeEntries = (bookingIncomeResponse.data || [])
         .map((booking) => mapBookingToFinanceIncome(booking, financeServices, config))
-        .filter((entry) => entry.amount > 0);
+        .filter((entry) => entry.amount > 0)
+        .map((entry) => {
+            try {
+                return buildIncomeFinancialSnapshot(entry, mappedCostSheets, config);
+            } catch (error) {
+                return entry;
+            }
+        });
     const manualIncomeEntries = (incomeResponse.data || []).map(mapFinanceIncomeFromDb);
+    const persistedBookingIds = new Set(manualIncomeEntries.map((entry) => String(entry.bookingId || '')).filter(Boolean));
+    const newBookingEntries = bookingIncomeEntries.filter((entry) => !persistedBookingIds.has(String(entry.bookingId || '')));
+
+    if (token && navigator.onLine !== false && validateFinanceConfig(config).length === 0) {
+        for (const entry of newBookingEntries.slice(0, 200)) {
+            try {
+                await saveRomaFinanceIncome(business.id, entry);
+            } catch (error) {
+                console.warn('No se pudo guardar la fotografía financiera de una cita:', error);
+                break;
+            }
+        }
+    }
+
     const incomeById = new Map();
     [...bookingIncomeEntries, ...manualIncomeEntries].forEach((entry) => {
         incomeById.set(String(entry.id), entry);
     });
 
-    const expensesWithRservasRoma = await ensureRservasRomaMonthlyExpense(business, expensesResponse.data || []);
-
     return {
         ...seed,
         config,
         services: financeServices,
-        materials: (seeded.materials || materialsResponse.data || []).length > 0
-            ? (seeded.materials || materialsResponse.data || []).map(mapFinanceMaterialFromDb)
+        materials: (materialsResponse.data || []).length > 0
+            ? (materialsResponse.data || []).map(mapFinanceMaterialFromDb)
             : seed.materials,
         incomeEntries: Array.from(incomeById.values()),
-        expenseEntries: expensesWithRservasRoma.map(mapFinanceExpenseFromDb),
-        costSheets: (sheetsResponse.data || []).map(mapFinanceSheetFromDb)
+        expenseEntries: (expensesResponse.data || []).map(mapFinanceExpenseFromDb),
+        costSheets: mappedCostSheets,
+        inventoryMovements: inventoryRows.map(mapInventoryMovementFromDb)
     };
 }
 
 async function saveRomaFinanceConfig(negocioId, config) {
     if (!negocioId) throw new Error('No hay negocio activo.');
+    if (getRomaSessionToken()) {
+        return applyRomaFinanceChange('save_config', {
+            main_currency: config.mainCurrency || 'CUP',
+            desired_margin: toNumber(config.desiredMargin) || 60,
+            rates: config.rates || {},
+            rates_updated_at: config.ratesUpdatedAt || new Date().toISOString(),
+            expected_version: config.version || null
+        });
+    }
     const { error } = await romaSupabase.from('roma_finanzas_config').upsert({
         negocio_id: negocioId,
         main_currency: config.mainCurrency || 'CUP',
@@ -581,6 +798,31 @@ async function saveRomaFinanceConfig(negocioId, config) {
 
 async function saveRomaFinanceIncome(negocioId, entry) {
     if (!negocioId) throw new Error('No hay negocio activo.');
+    if (getRomaSessionToken()) {
+        return saveRomaFinanceIncomeWithTip({
+            id: entry.id,
+            date: entry.date || getTodayKey(),
+            service_id: entry.serviceId || null,
+            client: entry.client || null,
+            amount: toNumber(entry.amount),
+            currency: entry.currency || 'CUP',
+            rate_to_main: toNumber(entry.rateToMain) || 1,
+            amount_main: toNumber(entry.amountMain),
+            tip_amount: Math.max(toNumber(entry.tipAmount), 0),
+            tip_currency: entry.tipCurrency || entry.currency || 'CUP',
+            tip_rate_to_main: toNumber(entry.tipRateToMain),
+            tip_amount_main: toNumber(entry.tipAmountMain),
+            unit_cost_main: toNumber(entry.unitCostMain),
+            profit_main: toNumber(entry.profitMain),
+            margin: toNumber(entry.margin),
+            cost_sheet_id: entry.costSheetId || null,
+            payment_method: entry.paymentMethod || null,
+            note: entry.note || null,
+            source: entry.source || 'manual',
+            booking_id: entry.bookingId || null,
+            expected_version: entry.version || null
+        });
+    }
     const { error } = await romaSupabase.from('roma_finanzas_ingresos').upsert({
         negocio_id: negocioId,
         id: entry.id,
@@ -589,6 +831,10 @@ async function saveRomaFinanceIncome(negocioId, entry) {
         client: entry.client || null,
         amount: toNumber(entry.amount),
         currency: entry.currency || 'CUP',
+        tip_amount: Math.max(toNumber(entry.tipAmount), 0),
+        tip_currency: entry.tipCurrency || entry.currency || 'CUP',
+        tip_rate_to_main: toNumber(entry.tipRateToMain) || 1,
+        tip_amount_main: toNumber(entry.tipAmountMain),
         payment_method: entry.paymentMethod || null,
         note: entry.note || null
     }, { onConflict: 'negocio_id,id' });
@@ -597,6 +843,9 @@ async function saveRomaFinanceIncome(negocioId, entry) {
 
 async function deleteRomaFinanceIncome(negocioId, id) {
     if (!negocioId) throw new Error('No hay negocio activo.');
+    if (getRomaSessionToken()) {
+        return applyRomaFinanceChange('delete_income', { id });
+    }
     const { error } = await romaSupabase
         .from('roma_finanzas_ingresos')
         .delete()
@@ -615,6 +864,23 @@ function isMissingSchemaColumnError(error, columns = []) {
 
 async function saveRomaFinanceExpense(negocioId, entry) {
     if (!negocioId) throw new Error('No hay negocio activo.');
+    if (getRomaSessionToken()) {
+        return applyRomaFinanceChange('save_expense', {
+            id: entry.id,
+            date: entry.date || getTodayKey(),
+            category: entry.category || null,
+            description: entry.description || null,
+            amount: toNumber(entry.amount),
+            currency: entry.currency || 'CUP',
+            rate_to_main: toNumber(entry.rateToMain) || 1,
+            amount_main: toNumber(entry.amountMain),
+            type: entry.type || 'cotidiano',
+            useful_life_months: entry.type === 'herramienta' ? Math.max(toNumber(entry.usefulLifeMonths), 1) : null,
+            depreciation_note: entry.depreciationNote || null,
+            recurring_key: entry.recurringKey || null,
+            expected_version: entry.version || null
+        });
+    }
     const baseExpenseRow = {
         negocio_id: negocioId,
         id: entry.id,
@@ -652,6 +918,9 @@ async function saveRomaFinanceExpense(negocioId, entry) {
 
 async function deleteRomaFinanceExpense(negocioId, id) {
     if (!negocioId) throw new Error('No hay negocio activo.');
+    if (getRomaSessionToken()) {
+        return applyRomaFinanceChange('delete_expense', { id });
+    }
     const { error } = await romaSupabase
         .from('roma_finanzas_gastos')
         .delete()
@@ -664,6 +933,22 @@ async function saveRomaFinanceMaterial(negocioId, material) {
     if (!negocioId) throw new Error('No hay negocio activo.');
     const uses = Math.max(toNumber(material.uses), 1);
     const cost = toNumber(material.cost);
+    if (getRomaSessionToken()) {
+        return applyRomaFinanceChange('save_material', {
+            id: material.id,
+            name: material.name || 'Material',
+            cost,
+            currency: material.currency || 'CUP',
+            purchase_rate_to_main: material.purchaseRateToMain,
+            purchase_cost_main: material.purchaseCostMain,
+            uses,
+            cost_per_use: cost / uses,
+            unit: material.unit || 'uso',
+            stock: toNumber(material.stock),
+            low_stock_threshold: material.lowStockThreshold,
+            expected_version: material.version || null
+        });
+    }
     const { error } = await romaSupabase.from('roma_finanzas_materials').upsert({
         negocio_id: negocioId,
         id: material.id,
@@ -681,6 +966,9 @@ async function saveRomaFinanceMaterial(negocioId, material) {
 
 async function deleteRomaFinanceMaterial(negocioId, id) {
     if (!negocioId) throw new Error('No hay negocio activo.');
+    if (getRomaSessionToken()) {
+        return applyRomaFinanceChange('delete_material', { id });
+    }
     const { error } = await romaSupabase
         .from('roma_finanzas_materials')
         .delete()
@@ -691,6 +979,21 @@ async function deleteRomaFinanceMaterial(negocioId, id) {
 
 async function saveRomaFinanceService(negocioId, service) {
     if (!negocioId) throw new Error('No hay negocio activo.');
+    if (getRomaSessionToken()) {
+        return applyRomaFinanceChange('save_service', {
+            id: service.id,
+            name: service.name || 'Servicio',
+            category: service.category || 'General',
+            price: toNumber(service.price),
+            duration: Math.max(toNumber(service.duration), 1),
+            currency: service.currency || 'CUP',
+            active: service.active !== false,
+            default_materials: service.defaultMaterials || [],
+            source: service.source || 'manual',
+            source_service_id: service.sourceServiceId || null,
+            expected_version: service.version || null
+        });
+    }
     const { error } = await romaSupabase.from('roma_finanzas_services').upsert({
         negocio_id: negocioId,
         id: service.id,
@@ -710,6 +1013,24 @@ async function deleteRomaFinanceService(negocioId, service) {
     if (!negocioId) throw new Error('No hay negocio activo.');
     const serviceId = typeof service === 'string' ? service : service?.id;
     if (!serviceId) throw new Error('No hay servicio para eliminar.');
+
+    if (getRomaSessionToken()) {
+        if (String(serviceId).startsWith('servicio_')) {
+            return applyRomaFinanceChange('save_service', {
+                id: serviceId,
+                name: service?.name || 'Servicio',
+                category: service?.category || 'General',
+                price: toNumber(service?.price),
+                duration: Math.max(toNumber(service?.duration), 1),
+                currency: service?.currency || 'CUP',
+                active: false,
+                default_materials: service?.defaultMaterials || [],
+                source: 'rservasroma',
+                source_service_id: service?.sourceServiceId || String(serviceId).replace(/^servicio_/, '')
+            });
+        }
+        return applyRomaFinanceChange('delete_service', { id: serviceId });
+    }
 
     if (String(serviceId).startsWith('servicio_')) {
         const { error } = await romaSupabase.from('roma_finanzas_services').upsert({
@@ -738,6 +1059,22 @@ async function deleteRomaFinanceService(negocioId, service) {
 
 async function saveRomaFinanceCostSheet(negocioId, sheet) {
     if (!negocioId) throw new Error('No hay negocio activo.');
+    if (getRomaSessionToken()) {
+        return applyRomaFinanceChange('save_cost_sheet', {
+            id: sheet.id,
+            service_id: sheet.serviceId || null,
+            service_name: sheet.serviceName || null,
+            material_usages: sheet.materialUsages || [],
+            extra_expenses: sheet.extraExpenses || [],
+            fixed_cost_usages: sheet.fixedCostUsages || sheet.totals?.fixedCostUsages || [],
+            sale_price: toNumber(sheet.salePrice),
+            sale_currency: sheet.saleCurrency || 'CUP',
+            rate_to_main: sheet.rateToMain,
+            totals: sheet.totals || {},
+            effective_from: sheet.effectiveFrom || getTodayKey(),
+            expected_version: sheet.version || null
+        });
+    }
     const { error } = await romaSupabase.from('roma_finanzas_fichas_costo').upsert({
         negocio_id: negocioId,
         id: sheet.id,
@@ -755,10 +1092,34 @@ async function saveRomaFinanceCostSheet(negocioId, sheet) {
 
 async function deleteRomaFinanceCostSheet(negocioId, id) {
     if (!negocioId) throw new Error('No hay negocio activo.');
+    if (getRomaSessionToken()) {
+        return applyRomaFinanceChange('delete_cost_sheet', { id });
+    }
     const { error } = await romaSupabase
         .from('roma_finanzas_fichas_costo')
         .delete()
         .eq('negocio_id', negocioId)
         .eq('id', id);
     if (error) throw error;
+}
+
+async function saveRomaFinanceInventoryMovement(negocioId, movement) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    if (!getRomaSessionToken()) throw new Error('Actualiza la base de datos para usar movimientos de inventario.');
+    return applyRomaFinanceChange('save_inventory_movement', {
+        id: movement.id,
+        material_id: movement.materialId,
+        date: movement.date || getTodayKey(),
+        movement_type: movement.movementType,
+        quantity: toNumber(movement.quantity),
+        note: movement.note || null,
+        source_income_id: movement.sourceIncomeId || null,
+        expected_version: movement.version || null
+    });
+}
+
+async function deleteRomaFinanceInventoryMovement(negocioId, id) {
+    if (!negocioId) throw new Error('No hay negocio activo.');
+    if (!getRomaSessionToken()) throw new Error('Actualiza la base de datos para usar movimientos de inventario.');
+    return applyRomaFinanceChange('delete_inventory_movement', { id });
 }

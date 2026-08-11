@@ -93,23 +93,40 @@ function App() {
   };
 
   const renderView = () => {
+    const configurationErrors = validateFinanceConfig(state.config || {});
+    if (isAuthenticated && currentView !== 'login' && currentView !== 'config' && configurationErrors.length > 0) {
+      return (
+        <div className="p-4">
+          <div className="card p-6 text-center">
+            <div className="w-14 h-14 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="icon-coins text-2xl"></div>
+            </div>
+            <h2 className="text-xl font-black text-gray-900">Configura tus tasas primero</h2>
+            <p className="text-sm text-gray-600 mt-2">No haremos cálculos con tasas inventadas. Escribe cuánto vale hoy USD, MLC y EUR en CUP.</p>
+            <button type="button" onClick={() => navigate('config')} className="btn-primary mt-5">Configurar monedas</button>
+          </div>
+        </div>
+      );
+    }
+
     switch (currentView) {
       case 'login': return <Login onLogin={handleLogin} checkingSession={checkingSession} />;
-      case 'dashboard': return <Dashboard />;
+      case 'dashboard': return <Dashboard onNavigate={navigate} />;
       case 'income': return <Income />;
       case 'expenses': return <Expenses />;
       case 'menu': return <Menu onNavigate={navigate} />;
       case 'services': return <Services onBack={() => navigate('menu')} />;
       case 'materials': return <Materials onBack={() => navigate('menu')} />;
       case 'costSheet': return <CostSheet onBack={() => navigate('menu')} />;
+      case 'reports': return <Reports onBack={() => navigate('menu')} />;
       case 'config': return <Config onBack={() => navigate('menu')} />;
-      default: return <Dashboard />;
+      default: return <Dashboard onNavigate={navigate} />;
     }
   };
 
   try {
     return (
-      <div className="mobile-shell w-full max-w-md mx-auto min-h-screen bg-[var(--bg-color)] relative shadow-2xl overflow-x-hidden" data-name="app" data-file="app.js">
+      <div className="mobile-shell w-full mx-auto min-h-screen relative overflow-x-hidden" data-name="app" data-file="app.js">
         {isAuthenticated && currentView !== 'login' && (
           <TopBar
             view={currentView}
@@ -124,7 +141,7 @@ function App() {
           />
         )}
         
-        <main className={`w-full ${isAuthenticated && currentView !== 'login' ? 'pt-16 pb-24' : ''}`}>
+        <main className={`app-content w-full ${isAuthenticated && currentView !== 'login' ? 'pt-20 pb-28' : ''}`}>
             {renderView()}
         </main>
 
