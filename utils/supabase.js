@@ -3,6 +3,8 @@ const ROMA_SUPABASE_ANON_KEY = window.ROMA_CONFIG?.supabaseAnonKey || '';
 const ROMA_BACKEND_MODE = window.ROMA_CONFIG?.backendMode || 'standalone-auth';
 const ROMA_SUPABASE_CONFIGURED = window.ROMA_CONFIG?.supabaseConfigured !== false;
 const ROMA_USES_SUPABASE_AUTH = ROMA_BACKEND_MODE === 'standalone-auth';
+const ROMA_USES_RSERVASROMA_IDENTITY = ROMA_BACKEND_MODE === 'federated-rservasroma';
+const ROMA_USES_SERVER_INCOME_RPC = ROMA_USES_SUPABASE_AUTH || ROMA_USES_RSERVASROMA_IDENTITY;
 const ROMA_SESSION_KEY = 'roma_finanzas_auth_v1';
 const ROMA_SESSION_HOURS = 12;
 
@@ -34,6 +36,54 @@ async function loginRomaFinanzasWithRpc(username, password) {
     return {
         session: saveRomaSession(business, token, expiresAt),
         user: { username, email: business.email || '', businessId: business.id },
+        business
+    };
+}
+
+async function loginRomaFinanzasWithRservasRoma(slug, password) {
+    if (!ROMA_SUPABASE_CONFIGURED) {
+        throw new Error('Falta conectar el proyecto FinanzasRoma en .env.local.');
+    }
+
+    const endpoint = `${ROMA_SUPABASE_URL.replace(/\/$/, '')}/functions/v1/rservasroma-login`;
+    let response;
+
+    try {
+        response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                apikey: ROMA_SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${ROMA_SUPABASE_ANON_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ slug, password })
+        });
+    } catch (error) {
+        throw new Error('No pudimos conectar con RservasRoma. Revisa tu internet e intentalo otra vez.');
+    }
+
+    let result = {};
+    try {
+        result = await response.json();
+    } catch (error) {
+        result = {};
+    }
+
+    if (!response.ok) {
+        throw new Error(result.error || 'Slug o contrasena incorrectos.');
+    }
+    if (!result?.business || !result?.token) {
+        throw new Error('RservasRoma valido el acceso, pero no se pudo abrir Roma Finanzas.');
+    }
+
+    const business = sanitizeBusinessForSession(result.business);
+    return {
+        session: saveRomaSession(business, result.token, result.expires_at || ''),
+        user: {
+            username: business.slug || slug,
+            email: business.email || '',
+            businessId: business.id
+        },
         business
     };
 }
@@ -126,14 +176,31 @@ function readRomaSession() {
     }
 }
 
+function normalizeRservasRomaSlug(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s*-\s*/g, '-')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-');
+}
+
 async function loginRomaFinanzas(username, password) {
-    const cleanUsername = String(username || '').trim().toLowerCase();
-    const cleanPassword = String(password || '');
+    const cleanUsername = ROMA_USES_RSERVASROMA_IDENTITY
+        ? normalizeRservasRomaSlug(username)
+        : String(username || '').trim().toLowerCase();
+    const cleanPassword = ROMA_USES_RSERVASROMA_IDENTITY
+        ? String(password || '').trim()
+        : String(password || '');
 
     if (!cleanUsername || !cleanPassword) {
         throw new Error(ROMA_USES_SUPABASE_AUTH
             ? 'Escribe tu correo y contraseña.'
             : 'Escribe tu usuario y contraseña.');
+    }
+
+    if (ROMA_USES_RSERVASROMA_IDENTITY) {
+        return loginRomaFinanzasWithRservasRoma(cleanUsername, cleanPassword);
     }
 
     if (ROMA_USES_SUPABASE_AUTH) {
@@ -329,7 +396,7 @@ async function saveRomaFinanceIncomeWithTip(payload) {
     const token = getRomaSessionToken();
     if (!token) return null;
 
-    if (!ROMA_USES_SUPABASE_AUTH) {
+    if (!ROMA_USES_SERVER_INCOME_RPC) {
         return applyRomaFinanceChange('save_income', payload);
     }
 

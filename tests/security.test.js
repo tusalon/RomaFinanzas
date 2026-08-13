@@ -8,6 +8,9 @@ const sql = fs.readFileSync(path.join(root, 'supabase', 'roma-finanzas-access.sq
 const standaloneBootstrap = fs.readFileSync(path.join(root, 'supabase', 'standalone-01-bootstrap.sql'), 'utf8').toLowerCase();
 const standaloneBridge = fs.readFileSync(path.join(root, 'supabase', 'standalone-02-auth-bridge.sql'), 'utf8').toLowerCase();
 const tipsMigration = fs.readFileSync(path.join(root, 'supabase', 'standalone-03-income-tips.sql'), 'utf8').toLowerCase();
+const federatedProvider = fs.readFileSync(path.join(root, 'supabase', 'rservasroma-federated-auth-provider.sql'), 'utf8').toLowerCase();
+const federatedTarget = fs.readFileSync(path.join(root, 'supabase', 'standalone-04-federated-rservasroma.sql'), 'utf8').toLowerCase();
+const federatedFunction = fs.readFileSync(path.join(root, 'supabase', 'functions', 'rservasroma-login', 'index.ts'), 'utf8').toLowerCase();
 
 test('la migración no vuelve a abrir las tablas financieras', () => {
     assert.equal(sql.includes('disable row level security'), false);
@@ -43,6 +46,31 @@ test('el cliente no verifica hashes de contraseña', () => {
     const client = fs.readFileSync(path.join(root, 'utils', 'supabase.js'), 'utf8');
     assert.equal(client.includes('bcrypt.compareSync'), false);
     assert.equal(client.includes("baseFields.push('password_hash')"), false);
+});
+
+test('el acceso federado corrige espacios accidentales en el slug', () => {
+    const client = fs.readFileSync(path.join(root, 'utils', 'supabase.js'), 'utf8');
+    const edgeFunction = fs.readFileSync(
+        path.join(root, 'supabase', 'functions', 'rservasroma-login', 'index.ts'),
+        'utf8'
+    );
+
+    [client, edgeFunction].forEach((content) => {
+        assert.match(content, /replace\(\/\\s\*-\\s\*\/g, '-'\)/);
+        assert.match(content, /replace\(\/\\s\+\/g, '-'\)/);
+    });
+});
+
+test('el acceso federado trata la contraseña igual que el login de RservasRoma', () => {
+    const client = fs.readFileSync(path.join(root, 'utils', 'supabase.js'), 'utf8');
+    const edgeFunction = fs.readFileSync(
+        path.join(root, 'supabase', 'functions', 'rservasroma-login', 'index.ts'),
+        'utf8'
+    );
+
+    assert.match(client, /ROMA_USES_RSERVASROMA_IDENTITY[\s\S]{0,120}String\(password \|\| ''\)\.trim\(\)/);
+    assert.match(edgeFunction, /const password = String\(payload\?\.password \|\| ''\)\.trim\(\)/);
+    assert.match(federatedProvider, /v_password text := btrim\(coalesce\(p_password, ''\)\)/);
 });
 
 test('no queda un costo mensual de RservasRoma inventado en la lógica', () => {
@@ -98,4 +126,34 @@ test('las propinas se convierten en el servidor y no alteran el precio del servi
     assert.match(tipsMigration, /public\.apply_roma_finanzas_change\([\s\S]*'save_income'/);
     assert.equal(tipsMigration.includes("p_payload->>'tip_rate_to_main'"), false);
     assert.match(tipsMigration, /grant execute on function public\.save_roma_finanzas_income\(text, jsonb\)\s+to authenticated/);
+});
+
+test('el acceso compartido valida la contrasena solo dentro de RservasRoma', () => {
+    assert.match(federatedProvider, /extensions\.crypt\(v_password, v_business\.password_hash\)/);
+    assert.match(federatedProvider, /verify_roma_finanzas_identity/);
+    assert.match(federatedProvider, /'error', 'invalid_credentials'/);
+    assert.equal(federatedProvider.includes("'password_hash', v_business.password_hash"), false);
+    assert.match(federatedProvider, /compatibilidad temporal de produccion/);
+    assert.equal(federatedProvider.includes('revoke select on table public.negocios'), false);
+});
+
+test('FinanzasRoma enlaza por id externo sin copiar hashes ni contrasenas', () => {
+    assert.match(federatedTarget, /external_negocio_id = v_external_id/);
+    assert.match(federatedTarget, /external_negocio_id is null/);
+    assert.match(federatedTarget, /auth_source = 'rservasroma'/);
+    assert.equal(federatedTarget.includes('password_hash'), false);
+    assert.equal(federatedTarget.includes('p_password'), false);
+});
+
+test('la funcion Edge mantiene claves privadas fuera del navegador', () => {
+    assert.match(federatedFunction, /rservasroma_supabase_anon_key/);
+    assert.match(federatedFunction, /supabase_service_role_key/);
+    assert.match(federatedFunction, /create_federated_roma_finanzas_session/);
+    assert.equal(federatedFunction.includes('console.log'), false);
+});
+
+test('la funcion Edge no disfraza un fallo del proveedor como contraseña incorrecta', () => {
+    assert.match(federatedFunction, /if \(identityerror\)/);
+    assert.match(federatedFunction, /revisa la clave de conexion de la integracion/);
+    assert.match(federatedFunction, /if \(!identity \|\| identity\.ok !== true\)/);
 });

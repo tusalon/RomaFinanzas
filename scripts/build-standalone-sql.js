@@ -8,7 +8,8 @@ const sources = [
     'standalone-01-bootstrap.sql',
     'roma-finanzas-access.sql',
     'standalone-02-auth-bridge.sql',
-    'standalone-03-income-tips.sql'
+    'standalone-03-income-tips.sql',
+    'standalone-04-federated-rservasroma.sql'
 ];
 
 const contents = [

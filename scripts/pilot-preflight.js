@@ -4,6 +4,7 @@ const { spawnSync } = require('child_process');
 const { getProjectConfig } = require('./project-config');
 
 const root = path.resolve(__dirname, '..');
+const appVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 const { backendMode, supabaseUrl, supabaseAnonKey, supabaseConfigured } = getProjectConfig();
 const checks = [];
 
@@ -45,7 +46,7 @@ async function checkSupabaseContract() {
             Authorization: `Bearer ${supabaseAnonKey}`,
             'Content-Type': 'application/json'
         };
-        if (backendMode === 'standalone-auth') {
+        if (backendMode === 'standalone-auth' || backendMode === 'federated-rservasroma') {
             const authSettings = await fetch(`${supabaseUrl.replace(/\/$/, '')}/auth/v1/settings`, {
                 headers: { apikey: supabaseAnonKey }
             });
@@ -91,6 +92,23 @@ async function checkSupabaseContract() {
                     ? 'Primero instala el esquema.'
                     : (businessProbe.ok ? 'anon todavía puede consultar negocios.' : 'anon no puede leer negocios.')
             );
+            if (backendMode === 'federated-rservasroma') {
+                const functionProbe = await fetch(
+                    `${supabaseUrl.replace(/\/$/, '')}/functions/v1/rservasroma-login`,
+                    {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify({ slug: '', password: '' })
+                    }
+                );
+                addCheck(
+                    'Acceso compartido con RservasRoma',
+                    functionProbe.status !== 404,
+                    functionProbe.status === 404
+                        ? 'Falta desplegar la funcion rservasroma-login en FinanzasRoma.'
+                        : 'La funcion de acceso federado responde.'
+                );
+            }
             return;
         }
 
@@ -166,10 +184,23 @@ async function run() {
 
     const sdkPath = androidSdkPath();
     addCheck('Android SDK', sdkPath && fs.existsSync(sdkPath), sdkPath || 'No configurado');
-    addCheck('Build web', fs.existsSync(path.join(root, 'dist', 'assets', 'app.js')), 'Ejecuta npm run check si falta.');
-    const migrationFiles = backendMode === 'standalone-auth'
-        ? ['standalone-01-bootstrap.sql', 'roma-finanzas-access.sql', 'standalone-02-auth-bridge.sql']
-        : ['roma-finanzas-access.sql'];
+    addCheck(
+        'Build web',
+        fs.existsSync(path.join(root, 'dist', 'assets', `app-${appVersion}.js`)),
+        'Ejecuta npm run check si falta.'
+    );
+    const migrationFiles = backendMode === 'federated-rservasroma'
+        ? [
+            'standalone-01-bootstrap.sql',
+            'roma-finanzas-access.sql',
+            'standalone-02-auth-bridge.sql',
+            'standalone-03-income-tips.sql',
+            'standalone-04-federated-rservasroma.sql',
+            'rservasroma-federated-auth-provider.sql'
+        ]
+        : (backendMode === 'standalone-auth'
+            ? ['standalone-01-bootstrap.sql', 'roma-finanzas-access.sql', 'standalone-02-auth-bridge.sql']
+            : ['roma-finanzas-access.sql']);
     addCheck(
         'Migración segura',
         migrationFiles.every((file) => fs.existsSync(path.join(root, 'supabase', file))),

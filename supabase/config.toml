@@ -1,0 +1,4 @@
+[functions.rservasroma-login]
+# Es un endpoint de login: todavia no existe un JWT de usuario. La proteccion
+# la aportan CORS, limites de entrada, bloqueo por intentos y los RPC cerrados.
+verify_jwt = false

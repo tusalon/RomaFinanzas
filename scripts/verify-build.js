@@ -42,7 +42,9 @@ const appBundle = fs.readFileSync(path.join(dist, appBundleFile), 'utf8');
 assert(!appBundle.includes('babel.min.js'), 'El build todavía depende de Babel en el navegador.');
 assert(!appBundle.includes('bcrypt.compareSync'), 'El build todavía verifica contraseñas en el navegador.');
 assert(appBundle.includes('standalone-auth'), 'El build no contiene el modo independiente de Supabase Auth.');
-assert(appBundle.includes('Entrar a Roma Finanzas'), 'El build no contiene el login nuevo por correo.');
+assert(appBundle.includes('federated-rservasroma'), 'El build no contiene el acceso compartido con RservasRoma.');
+assert(appBundle.includes('rservasroma-login'), 'El build no contiene la llamada a la funcion de acceso compartido.');
+assert(appBundle.includes('Entrar con RservasRoma'), 'El build no contiene el login por slug de RservasRoma.');
 assert(appBundle.includes('rwodzlwzrkshgsbhhbrw.supabase.co'), 'El build no apunta al proyecto FinanzasRoma configurado.');
 assert(fs.statSync(path.join(dist, appBundleFile)).size < 1_500_000, 'El bundle principal supera 1.5 MB.');
 
