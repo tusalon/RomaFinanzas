@@ -54,7 +54,9 @@ jobs:
 
       - name: Build web
         env:
-          ROMA_BACKEND_MODE: ${{ vars.ROMA_BACKEND_MODE }}
+          # GitHub Pages es la producción federada. Mantener el modo explícito
+          # evita que una variable antigua reactive el login RPC retirado.
+          ROMA_BACKEND_MODE: federated-rservasroma
           ROMA_SUPABASE_URL: ${{ vars.ROMA_SUPABASE_URL }}
           ROMA_SUPABASE_ANON_KEY: ${{ vars.ROMA_SUPABASE_ANON_KEY }}
         run: npm run build:web

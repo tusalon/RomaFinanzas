@@ -157,3 +157,13 @@ test('la funcion Edge no disfraza un fallo del proveedor como contraseña incorr
     assert.match(federatedFunction, /revisa la clave de conexion de la integracion/);
     assert.match(federatedFunction, /if \(!identity \|\| identity\.ok !== true\)/);
 });
+
+test('GitHub Pages publica siempre el acceso federado de producción', () => {
+    const pagesWorkflow = fs.readFileSync(
+        path.join(root, '.github', 'workflows', 'deploy-pages.yml'),
+        'utf8'
+    );
+
+    assert.match(pagesWorkflow, /ROMA_BACKEND_MODE: federated-rservasroma/);
+    assert.equal(pagesWorkflow.includes('ROMA_BACKEND_MODE: ${{ vars.ROMA_BACKEND_MODE }}'), false);
+});
