@@ -45,6 +45,7 @@ Deno.serve(async (request) => {
 
   try {
     const payload = await request.json();
+    const action = String(payload?.action || 'login');
     const slug = String(payload?.slug || '')
       .trim()
       .toLowerCase()
@@ -55,10 +56,6 @@ Deno.serve(async (request) => {
     // y al final antes de comprobar el hash bcrypt. Conservamos exactamente
     // ese comportamiento para que las mismas credenciales den el mismo resultado.
     const password = String(payload?.password || '').trim();
-
-    if (!slug || slug.length > 128 || !password || password.length > 512) {
-      return json({ error: 'Escribe el slug y la contrasena de RservasRoma.' }, 400, responseOrigin);
-    }
 
     const sourceUrl = Deno.env.get('RSERVASROMA_SUPABASE_URL') || '';
     const sourceKey = Deno.env.get('RSERVASROMA_SUPABASE_ANON_KEY') || '';
@@ -75,6 +72,71 @@ Deno.serve(async (request) => {
     const target = createClient(targetUrl, targetSecret, {
       auth: { persistSession: false, autoRefreshToken: false }
     });
+
+    if (action === 'load-business-data') {
+      const token = String(payload?.token || '').trim();
+      if (!/^[a-f0-9]{64}$/i.test(token)) {
+        return json({ error: 'La sesion de Roma Finanzas no es valida.' }, 401, responseOrigin);
+      }
+
+      const { data: resumeData, error: resumeError } = await target.rpc(
+        'resume_roma_finanzas_session',
+        { p_token: token }
+      );
+      const resume = Array.isArray(resumeData) ? resumeData[0] : resumeData;
+      const targetBusinessId = String(resume?.business?.id || '');
+
+      if (resumeError || !targetBusinessId) {
+        return json({ error: 'La sesion de Roma Finanzas vencio. Entra nuevamente.' }, 401, responseOrigin);
+      }
+
+      const { data: targetBusiness, error: targetBusinessError } = await target
+        .from('negocios')
+        .select('external_negocio_id,slug')
+        .eq('id', targetBusinessId)
+        .maybeSingle();
+
+      if (targetBusinessError || !targetBusiness?.external_negocio_id) {
+        return json({ error: 'El negocio no esta enlazado con RservasRoma.' }, 409, responseOrigin);
+      }
+
+      const externalBusinessId = String(targetBusiness.external_negocio_id);
+      const [servicesResponse, bookingsResponse] = await Promise.all([
+        source
+          .from('servicios')
+          .select('id,nombre,categoria,precio,precio_moneda,duracion,activo')
+          .eq('negocio_id', externalBusinessId)
+          .order('id', { ascending: true }),
+        source
+          .from('reservas')
+          .select('id,fecha,cliente_nombre,servicio,estado,monto_cobrado,precio_final,precio_original')
+          .eq('negocio_id', externalBusinessId)
+          .eq('estado', 'Completado')
+          .order('fecha', { ascending: false })
+          .limit(2000)
+      ]);
+
+      if (servicesResponse.error || bookingsResponse.error) {
+        console.error('RservasRoma business data error', {
+          servicesCode: servicesResponse.error?.code,
+          bookingsCode: bookingsResponse.error?.code
+        });
+        return json({ error: 'No pudimos cargar los servicios y citas de RservasRoma.' }, 502, responseOrigin);
+      }
+
+      return json({
+        catalog_services: servicesResponse.data || [],
+        completed_bookings: bookingsResponse.data || []
+      }, 200, responseOrigin);
+    }
+
+    if (action !== 'login') {
+      return json({ error: 'Accion no permitida.' }, 400, responseOrigin);
+    }
+
+    if (!slug || slug.length > 128 || !password || password.length > 512) {
+      return json({ error: 'Escribe el slug y la contrasena de RservasRoma.' }, 400, responseOrigin);
+    }
 
     const { data: identity, error: identityError } = await source.rpc(
       'verify_roma_finanzas_identity',

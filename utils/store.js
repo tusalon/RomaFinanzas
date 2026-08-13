@@ -82,7 +82,7 @@ function getBusinessInfoForState(business, fallbackBusiness = {}) {
     return {
         ...fallbackBusiness,
         id: business.id,
-        name: business.nombre || business.name || fallbackBusiness.name || 'Roma Beauty Studio',
+        name: business.nombre || business.name || fallbackBusiness.name || 'Mi negocio',
         email: business.email || fallbackBusiness.email || '',
         logoUrl: business.logo_url || business.logoUrl || fallbackBusiness.logoUrl || '',
         accessStatus: business.estado_finanzas || business.accessStatus || fallbackBusiness.accessStatus || 'activo',

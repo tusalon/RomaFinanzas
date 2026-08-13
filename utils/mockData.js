@@ -1,6 +1,6 @@
 const INITIAL_DATA = {
     business: {
-        name: 'Roma Beauty Studio',
+        name: 'Mi negocio',
         accessStatus: 'trial',
         financeAccess: true
     },

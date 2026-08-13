@@ -4,7 +4,9 @@ Objetivo: conservar FinanzasRoma como base independiente, pero usar una sola
 identidad. RservasRoma valida el `slug` y la contrasena; FinanzasRoma conserva
 solo el identificador externo y una sesion opaca de 12 horas.
 
-No se copian `password_hash`, contrasenas ni reservas al proyecto nuevo.
+No se copian `password_hash` ni contrasenas. Los servicios y las reservas
+completadas se leen desde RservasRoma con una sesion valida; Roma Finanzas
+solo guarda las fotografias financieras que necesita para sus calculos.
 
 ## Orden seguro de instalacion
 
@@ -14,6 +16,8 @@ No se copian `password_hash`, contrasenas ni reservas al proyecto nuevo.
 4. Desplegar la funcion Edge `rservasroma-login` en FinanzasRoma.
    Debe conservar `verify_jwt = false`: es el endpoint que crea la sesion y,
    por definicion, el usuario aun no posee un JWT.
+   La misma funcion carga el catalogo y las reservas completadas del negocio
+   autenticado. Si cambia `index.ts`, hay que desplegarla nuevamente.
 5. Guardar en los secretos de esa funcion:
    - `RSERVASROMA_SUPABASE_URL`: URL del proyecto RservasRoma.
    - `RSERVASROMA_SUPABASE_ANON_KEY`: clave publica del proyecto RservasRoma.

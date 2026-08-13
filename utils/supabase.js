@@ -5,7 +5,15 @@ const ROMA_SUPABASE_CONFIGURED = window.ROMA_CONFIG?.supabaseConfigured !== fals
 const ROMA_USES_SUPABASE_AUTH = ROMA_BACKEND_MODE === 'standalone-auth';
 const ROMA_USES_RSERVASROMA_IDENTITY = ROMA_BACKEND_MODE === 'federated-rservasroma';
 const ROMA_USES_SERVER_INCOME_RPC = ROMA_USES_SUPABASE_AUTH || ROMA_USES_RSERVASROMA_IDENTITY;
-const ROMA_SESSION_KEY = 'roma_finanzas_auth_v1';
+const ROMA_PROJECT_REF = (() => {
+    try {
+        return new URL(ROMA_SUPABASE_URL).hostname.split('.')[0] || 'sin-proyecto';
+    } catch (error) {
+        return 'sin-proyecto';
+    }
+})();
+const ROMA_LEGACY_SESSION_KEY = 'roma_finanzas_auth_v1';
+const ROMA_SESSION_KEY = `roma_finanzas_auth_v2_${ROMA_PROJECT_REF}_${ROMA_BACKEND_MODE}`;
 const ROMA_SESSION_HOURS = 12;
 
 const romaSupabase = window.supabase.createClient(ROMA_SUPABASE_URL, ROMA_SUPABASE_ANON_KEY, {
@@ -144,6 +152,8 @@ function sanitizeBusinessForSession(business) {
 
 function saveRomaSession(business, token = '', expiresAt = '') {
     const session = {
+        backendMode: ROMA_BACKEND_MODE,
+        projectRef: ROMA_PROJECT_REF,
         businessId: business.id,
         slug: business.slug,
         business: sanitizeBusinessForSession(business),
@@ -151,16 +161,22 @@ function saveRomaSession(business, token = '', expiresAt = '') {
         expiresAt,
         loginTime: Date.now()
     };
+    window.localStorage.removeItem(ROMA_LEGACY_SESSION_KEY);
     window.localStorage.setItem(ROMA_SESSION_KEY, JSON.stringify(session));
     return session;
 }
 
 function readRomaSession() {
     try {
+        window.localStorage.removeItem(ROMA_LEGACY_SESSION_KEY);
         const raw = window.localStorage.getItem(ROMA_SESSION_KEY);
         if (!raw) return null;
 
         const session = JSON.parse(raw);
+        if (session.backendMode !== ROMA_BACKEND_MODE || session.projectRef !== ROMA_PROJECT_REF) {
+            window.localStorage.removeItem(ROMA_SESSION_KEY);
+            return null;
+        }
         const maxAge = ROMA_SESSION_HOURS * 60 * 60 * 1000;
         const tokenExpired = session.expiresAt
             && new Date(session.expiresAt).getTime() <= Date.now();
@@ -174,6 +190,41 @@ function readRomaSession() {
         window.localStorage.removeItem(ROMA_SESSION_KEY);
         return null;
     }
+}
+
+async function loadRservasRomaBusinessData(token) {
+    const endpoint = `${ROMA_SUPABASE_URL.replace(/\/$/, '')}/functions/v1/rservasroma-login`;
+    let response;
+
+    try {
+        response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                apikey: ROMA_SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${ROMA_SUPABASE_ANON_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ action: 'load-business-data', token })
+        });
+    } catch (error) {
+        throw new Error('No pudimos conectar con los datos de RservasRoma.');
+    }
+
+    let result = {};
+    try {
+        result = await response.json();
+    } catch (error) {
+        result = {};
+    }
+
+    if (!response.ok) {
+        throw new Error(result.error || 'No pudimos cargar los datos de RservasRoma.');
+    }
+
+    return {
+        catalogServices: result.catalog_services || [],
+        completedBookings: result.completed_bookings || []
+    };
 }
 
 function normalizeRservasRomaSlug(value) {
@@ -434,7 +485,7 @@ function mapBusinessServiceToFinance(row, config = {}) {
         category: row.categoria || 'General',
         price: toNumber(row.precio),
         duration: toNumber(row.duracion) || 60,
-        currency: mainCurrency,
+        currency: ROMA_CURRENCIES.includes(row.precio_moneda) ? row.precio_moneda : mainCurrency,
         active: row.activo !== false,
         defaultMaterials: [],
         source: 'rservasroma',
@@ -750,6 +801,12 @@ async function loadRomaFinanceData(business) {
         inventoryRows = bundle.inventory_movements || [];
         catalogServices = bundle.catalog_services || [];
         completedBookings = bundle.completed_bookings || [];
+
+        if (ROMA_USES_RSERVASROMA_IDENTITY) {
+            const sourceData = await loadRservasRomaBusinessData(token);
+            catalogServices = sourceData.catalogServices;
+            completedBookings = sourceData.completedBookings;
+        }
     } else {
         [configResponse, servicesResponse, materialsResponse, incomeResponse, expensesResponse, sheetsResponse] = await Promise.all([
             romaSupabase.from('roma_finanzas_config').select('*').eq('negocio_id', business.id).maybeSingle(),

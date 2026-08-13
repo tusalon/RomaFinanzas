@@ -6,6 +6,11 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
+test('la app no muestra un salón demo como si fuera el negocio autenticado', () => {
+    assert.equal(read('utils/mockData.js').includes('Roma Beauty Studio'), false);
+    assert.equal(read('utils/store.js').includes('Roma Beauty Studio'), false);
+});
+
 test('la navegación principal usa acciones fáciles de entender', () => {
     const bottomNav = read('components/BottomNav.js');
     const topBar = read('components/TopBar.js');

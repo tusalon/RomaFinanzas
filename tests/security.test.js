@@ -158,6 +158,27 @@ test('la funcion Edge no disfraza un fallo del proveedor como contraseña incorr
     assert.match(federatedFunction, /if \(!identity \|\| identity\.ok !== true\)/);
 });
 
+test('el puente federado trae solo los datos del negocio autenticado', () => {
+    const client = fs.readFileSync(path.join(root, 'utils', 'supabase.js'), 'utf8').toLowerCase();
+
+    assert.match(federatedFunction, /action === 'load-business-data'/);
+    assert.match(federatedFunction, /resume_roma_finanzas_session/);
+    assert.match(federatedFunction, /external_negocio_id/);
+    assert.match(federatedFunction, /\.from\('servicios'\)[\s\S]*\.eq\('negocio_id', externalbusinessid\)/);
+    assert.match(federatedFunction, /\.from\('reservas'\)[\s\S]*\.eq\('negocio_id', externalbusinessid\)/);
+    assert.match(client, /action: 'load-business-data'/);
+    assert.equal(client.includes('rservasroma_supabase_anon_key'), false);
+});
+
+test('las sesiones antiguas no pueden restaurar otro negocio', () => {
+    const client = fs.readFileSync(path.join(root, 'utils', 'supabase.js'), 'utf8');
+
+    assert.match(client, /roma_finanzas_auth_v2_/);
+    assert.match(client, /session\.backendMode !== ROMA_BACKEND_MODE/);
+    assert.match(client, /session\.projectRef !== ROMA_PROJECT_REF/);
+    assert.match(client, /removeItem\(ROMA_LEGACY_SESSION_KEY\)/);
+});
+
 test('GitHub Pages publica siempre el acceso federado de producción', () => {
     const pagesWorkflow = fs.readFileSync(
         path.join(root, '.github', 'workflows', 'deploy-pages.yml'),

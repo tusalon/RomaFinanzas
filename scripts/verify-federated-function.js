@@ -41,6 +41,40 @@ async function run() {
     );
 
     if (!passed) process.exitCode = 1;
+
+    const loadResponse = await fetch(
+        `${supabaseUrl.replace(/\/$/, '')}/functions/v1/rservasroma-login`,
+        {
+            method: 'POST',
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`,
+                'Content-Type': 'application/json',
+                Origin: 'http://127.0.0.1:4173'
+            },
+            body: JSON.stringify({
+                action: 'load-business-data',
+                token: 'incorrecto'
+            })
+        }
+    );
+
+    let loadBody = {};
+    try {
+        loadBody = await loadResponse.json();
+    } catch (error) {
+        loadBody = {};
+    }
+
+    const loadPassed = loadResponse.status === 401
+        && String(loadBody.error || '').toLowerCase().includes('sesion');
+
+    console.log(
+        `${loadPassed ? 'OK' : 'FALTA'} puente de datos: HTTP ${loadResponse.status}; `
+        + `${loadBody.error || loadBody.message || loadBody.code || 'respuesta sin detalle'}`
+    );
+
+    if (!loadPassed) process.exitCode = 1;
 }
 
 run().catch((error) => {
