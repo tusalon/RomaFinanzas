@@ -190,3 +190,22 @@ test('GitHub Pages publica siempre el login RPC del proyecto compartido', () => 
     assert.match(pagesWorkflow, /ROMA_BACKEND_MODE: shared-rpc/);
     assert.equal(pagesWorkflow.includes('ROMA_BACKEND_MODE: ${{ vars.ROMA_BACKEND_MODE }}'), false);
 });
+
+test('las APKs se compilan con el mismo login RPC, no con el correo de standalone-auth', () => {
+    // .env.local esta en .gitignore: no existe en el runner de GitHub Actions.
+    // Sin ROMA_BACKEND_MODE explicito antes de "npm run android:sync", build:web
+    // cae en el default 'standalone-auth' (ver scripts/project-config.js) y la
+    // APK sale pidiendo correo en vez del usuario y contrasena de RservasRoma.
+    for (const workflowFile of ['build-android-apk.yml', 'build-android-release.yml']) {
+        const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', workflowFile), 'utf8');
+        const syncStepIndex = workflow.indexOf('npm run android:sync');
+        assert.notEqual(syncStepIndex, -1, `${workflowFile} no tiene el paso de sync`);
+
+        const beforeSync = workflow.slice(0, syncStepIndex);
+        const envBlockStart = beforeSync.lastIndexOf('- name:');
+        const envBlock = beforeSync.slice(envBlockStart);
+
+        assert.match(envBlock, /ROMA_BACKEND_MODE: shared-rpc/,
+            `${workflowFile}: falta ROMA_BACKEND_MODE antes de android:sync`);
+    }
+});

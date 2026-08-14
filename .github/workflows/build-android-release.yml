@@ -43,6 +43,13 @@ jobs:
           [IO.File]::WriteAllBytes("$pwd\roma-finanzas-release.jks", [Convert]::FromBase64String($env:KEYSTORE_BASE64))
 
       - name: Sync Capacitor Android
+        env:
+          # Misma base que la web publicada: sin esto, build:web no encuentra
+          # .env.local (esta en .gitignore) y cae en standalone-auth, que pide
+          # correo en vez del usuario y contrasena de RservasRoma.
+          ROMA_BACKEND_MODE: shared-rpc
+          ROMA_SUPABASE_URL: ${{ vars.ROMA_SUPABASE_URL }}
+          ROMA_SUPABASE_ANON_KEY: ${{ vars.ROMA_SUPABASE_ANON_KEY }}
         run: npm run android:sync
 
       - name: Build signed release
