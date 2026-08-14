@@ -485,7 +485,7 @@ function mapBusinessServiceToFinance(row, config = {}) {
         category: row.categoria || 'General',
         price: toNumber(row.precio),
         duration: toNumber(row.duracion) || 60,
-        currency: ROMA_CURRENCIES.includes(row.precio_moneda) ? row.precio_moneda : mainCurrency,
+        currency: SUPPORTED_CURRENCIES.includes(row.precio_moneda) ? row.precio_moneda : mainCurrency,
         active: row.activo !== false,
         defaultMaterials: [],
         source: 'rservasroma',
