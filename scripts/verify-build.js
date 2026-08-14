@@ -1,9 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { getProjectConfig } = require('./project-config');
 
 const root = path.resolve(__dirname, '..');
 const dist = path.join(root, 'dist');
+const { supabaseUrl } = getProjectConfig();
+const projectRef = (supabaseUrl.match(/^https:\/\/([a-z0-9-]+)\.supabase\.co\/?$/i) || [])[1];
 const appVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 const appBundleFile = `assets/app-${appVersion}.js`;
 const appStylesFile = `assets/app-${appVersion}.css`;
@@ -45,7 +48,8 @@ assert(appBundle.includes('standalone-auth'), 'El build no contiene el modo inde
 assert(appBundle.includes('federated-rservasroma'), 'El build no contiene el acceso compartido con RservasRoma.');
 assert(appBundle.includes('rservasroma-login'), 'El build no contiene la llamada a la funcion de acceso compartido.');
 assert(appBundle.includes('Entrar con RservasRoma'), 'El build no contiene el login por slug de RservasRoma.');
-assert(appBundle.includes('rwodzlwzrkshgsbhhbrw.supabase.co'), 'El build no apunta al proyecto FinanzasRoma configurado.');
+assert(projectRef, `ROMA_SUPABASE_URL no tiene forma de URL de Supabase: "${supabaseUrl}".`);
+assert(appBundle.includes(`${projectRef}.supabase.co`), `El build no apunta al proyecto configurado (${projectRef}).`);
 assert(fs.statSync(path.join(dist, appBundleFile)).size < 1_500_000, 'El bundle principal supera 1.5 MB.');
 
 console.log(`Build verificado: ${offlineAssets.length} recursos offline y bundle de ${Math.round(Buffer.byteLength(appBundle) / 1024)} KB.`);

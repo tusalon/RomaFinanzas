@@ -150,8 +150,12 @@ function Dashboard({ onNavigate }) {
     };
 
     const diagnosis = getDiagnosis();
+    const hasRservasRomaExpenseThisMonth = monthPeriod.expenseEntries.some((entry) => (
+        normalizeFinanceText(entry.category) === normalizeFinanceText('RservasRoma')
+    ));
     const recommendations = [
         state.costSheets.length === 0 ? 'Calcula cuánto te deja cada servicio para conocer tu ganancia.' : '',
+        !hasRservasRomaExpenseThisMonth ? 'Anota este mes lo que pagas a RservasRoma como gasto fijo. Escribe el monto real de tu plan, no lo copies de otro negocio.' : '',
         expensePressure > 35 ? 'Los gastos del mes están altos frente a los ingresos. Revisa gastos fijos, cotidianos y herramientas.' : '',
         topService ? `${topService.name} es tu servicio más rentable del mes: dejó aproximadamente ${formatMoney(topService.profit, mainCurrency)} en ${topService.count} cita(s).` : '',
         lowService ? `${lowService.name} es el servicio que menos ganancia dejó este mes.` : '',
