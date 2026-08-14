@@ -539,14 +539,8 @@ function mapFinanceIncomeFromDb(row) {
     };
 }
 
-function normalizeFinanceText(value) {
-    return String(value || '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toLowerCase();
-}
+// normalizeFinanceText ahora vive en utils/finance.js (utilidad pura, sin
+// dependencias de Supabase) para que tests/audit puedan requerirla en Node.
 
 function mapBookingToFinanceIncome(row, services = [], config = {}) {
     const serviceName = String(row.servicio || '').trim();

@@ -12,7 +12,10 @@ const {
     getIncomeCollectedMain,
     validateFinanceConfig,
     getExpenseImpact,
-    calculateCostSheet
+    calculateCostSheet,
+    normalizeFinanceText,
+    isDateInMonth,
+    auditFinanceState
 } = require('../utils/finance.js');
 
 const config = {
@@ -109,4 +112,81 @@ test('reparte una herramienta durante su vida útil', () => {
     };
     const impact = getExpenseImpact(entry, config, 'month', new Date('2026-06-15T12:00:00'));
     assert.equal(impact, 1000);
+});
+
+test('normalizeFinanceText ignora acentos, mayusculas y espacios de sobra', () => {
+    assert.equal(normalizeFinanceText('  RservasRoma  '), normalizeFinanceText('rservasroma'));
+    assert.equal(normalizeFinanceText('Gastó Fijo'), 'gasto fijo');
+});
+
+test('isDateInMonth compara solo año y mes, no el dia', () => {
+    const reference = new Date('2026-08-14T12:00:00');
+    assert.equal(isDateInMonth('2026-08-01', reference), true);
+    assert.equal(isDateInMonth('2026-08-31', reference), true);
+    assert.equal(isDateInMonth('2026-07-31', reference), false);
+    assert.equal(isDateInMonth('', reference), false);
+    assert.equal(isDateInMonth(null, reference), false);
+});
+
+test('auditFinanceState no reporta nada cuando todo esta en orden', () => {
+    const reference = new Date('2026-08-14T12:00:00');
+    const state = {
+        services: [{ id: 's1', name: 'Manicure', active: true, price: 500 }],
+        materials: [{ id: 'm1', name: 'Esmalte', cost: 100, costPerUse: 0, uses: 20 }],
+        costSheets: [{ id: 'c1', serviceId: 's1' }],
+        incomeEntries: [{ id: 'i1', date: '2026-08-10', costSheetId: 'c1' }],
+        expenseEntries: [{ id: 'e1', date: '2026-08-05', category: 'RservasRoma', type: 'fijo' }]
+    };
+    assert.deepEqual(auditFinanceState(state, reference), []);
+});
+
+test('auditFinanceState detecta el gasto de RservasRoma faltante este mes', () => {
+    const reference = new Date('2026-08-14T12:00:00');
+    const state = {
+        services: [],
+        materials: [],
+        costSheets: [],
+        incomeEntries: [],
+        expenseEntries: [{ id: 'e1', date: '2026-07-05', category: 'RservasRoma', type: 'fijo' }]
+    };
+    const issues = auditFinanceState(state, reference);
+    assert.ok(issues.some((issue) => issue.id === 'missing_rservasroma_expense'));
+});
+
+test('auditFinanceState detecta materiales, herramientas y servicios mal cargados', () => {
+    const reference = new Date('2026-08-14T12:00:00');
+    const state = {
+        services: [
+            { id: 's1', name: 'Pedicure', active: true, price: 0 },
+            { id: 's2', name: 'Manicure', active: true, price: 500 }
+        ],
+        materials: [{ id: 'm1', name: 'Acetona', cost: 0, costPerUse: 0, uses: 10 }],
+        costSheets: [],
+        incomeEntries: [],
+        expenseEntries: [
+            { id: 'e1', date: '2026-08-05', category: 'RservasRoma', type: 'fijo' },
+            { id: 'e2', date: '2026-08-01', description: 'Secadora', type: 'herramienta', usefulLifeMonths: 0 }
+        ]
+    };
+    const issues = auditFinanceState(state, reference);
+    const ids = issues.map((issue) => issue.id);
+
+    assert.ok(!ids.includes('missing_rservasroma_expense'));
+    assert.ok(ids.includes('materials_zero_cost'));
+    assert.ok(ids.includes('tools_missing_life'));
+    assert.ok(ids.includes('services_zero_price'));
+    assert.ok(ids.includes('services_without_cost_sheet'));
+});
+
+test('auditFinanceState no repite servicios que ya tienen ficha de costo', () => {
+    const reference = new Date('2026-08-14T12:00:00');
+    const state = {
+        services: [{ id: 's1', name: 'Manicure', active: true, price: 500 }],
+        materials: [],
+        costSheets: [{ id: 'c1', serviceId: 's1' }],
+        incomeEntries: [],
+        expenseEntries: [{ id: 'e1', date: '2026-08-05', category: 'RservasRoma', type: 'fijo' }]
+    };
+    const issues = auditFinanceState(state, reference);
+    assert.ok(!issues.some((issue) => issue.id === 'services_without_cost_sheet'));
 });

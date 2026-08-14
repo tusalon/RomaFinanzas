@@ -43,6 +43,15 @@ function makeId(prefix) {
     return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function normalizeFinanceText(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
 function toNumber(value) {
     if (typeof value === 'number') {
         return Number.isFinite(value) ? value : 0;
@@ -307,6 +316,109 @@ function calculateCostSheet(service, materialUsages, extraExpenses, materials, c
     };
 }
 
+function isDateInMonth(dateKey, referenceDate = new Date()) {
+    if (!dateKey) return false;
+    const entryDate = new Date(`${dateKey}T00:00:00`);
+    if (Number.isNaN(entryDate.getTime())) return false;
+    return entryDate.getFullYear() === referenceDate.getFullYear()
+        && entryDate.getMonth() === referenceDate.getMonth();
+}
+
+// Revisa los datos reales del negocio y devuelve solo lo que de verdad
+// distorsiona los calculos o falta para que el diagnostico sea confiable.
+// No repite validateFinanceConfig como issue aparte: si la config esta mal,
+// el gate de app.js ya bloquea toda la app antes de llegar aqui.
+function auditFinanceState(state, referenceDate = new Date()) {
+    const services = state.services || [];
+    const materials = state.materials || [];
+    const costSheets = state.costSheets || [];
+    const incomeEntries = state.incomeEntries || [];
+    const expenseEntries = state.expenseEntries || [];
+
+    const issues = [];
+    const addIssue = (issue) => issues.push({ view: null, actionLabel: 'Arreglar', ...issue });
+
+    const hasRservasRomaExpenseThisMonth = expenseEntries.some((entry) => (
+        isDateInMonth(entry.date, referenceDate)
+        && normalizeFinanceText(entry.category) === normalizeFinanceText('RservasRoma')
+    ));
+    if (!hasRservasRomaExpenseThisMonth) {
+        addIssue({
+            id: 'missing_rservasroma_expense',
+            title: 'No has anotado el gasto de RservasRoma este mes',
+            description: 'Escribe el monto real de tu plan como gasto fijo. Cada negocio paga distinto, no lo copies de otro.',
+            view: 'expenses',
+            actionLabel: 'Anotar gasto'
+        });
+    }
+
+    const zeroCostMaterials = materials.filter((material) => (
+        toNumber(material.cost) <= 0 && toNumber(material.costPerUse) <= 0
+    ));
+    if (zeroCostMaterials.length > 0) {
+        addIssue({
+            id: 'materials_zero_cost',
+            title: `${zeroCostMaterials.length} material(es) con costo en cero`,
+            description: `${zeroCostMaterials.slice(0, 3).map((m) => m.name).join(', ')}${zeroCostMaterials.length > 3 ? '...' : ''}. Con costo en cero, cualquier ficha que los use muestra más ganancia de la real.`,
+            view: 'materials',
+            actionLabel: 'Revisar materiales'
+        });
+    }
+
+    const badTools = expenseEntries.filter((entry) => (
+        normalizeExpenseType(entry.type) === 'herramienta' && toNumber(entry.usefulLifeMonths) <= 0
+    ));
+    if (badTools.length > 0) {
+        addIssue({
+            id: 'tools_missing_life',
+            title: `${badTools.length} herramienta(s) sin vida útil`,
+            description: `${badTools.slice(0, 3).map((t) => t.description || t.category).join(', ')}${badTools.length > 3 ? '...' : ''}. Sin ese dato, la app la deprecia toda de golpe el primer mes.`,
+            view: 'expenses',
+            actionLabel: 'Revisar gastos'
+        });
+    }
+
+    const zeroPriceServices = services.filter((service) => service.active && toNumber(service.price) <= 0);
+    if (zeroPriceServices.length > 0) {
+        addIssue({
+            id: 'services_zero_price',
+            title: `${zeroPriceServices.length} servicio(s) activo(s) sin precio`,
+            description: `${zeroPriceServices.slice(0, 3).map((s) => s.name).join(', ')}${zeroPriceServices.length > 3 ? '...' : ''}. No vas a poder anotar cobros de estos hasta ponerles precio.`,
+            view: 'services',
+            actionLabel: 'Poner precio'
+        });
+    }
+
+    const costedServiceIds = new Set(costSheets.map((sheet) => String(sheet.serviceId)));
+    const servicesWithoutCostSheet = services.filter((service) => (
+        service.active && !costedServiceIds.has(String(service.id))
+    ));
+    if (servicesWithoutCostSheet.length > 0) {
+        addIssue({
+            id: 'services_without_cost_sheet',
+            title: `${servicesWithoutCostSheet.length} servicio(s) sin calcular`,
+            description: `${servicesWithoutCostSheet.slice(0, 3).map((s) => s.name).join(', ')}${servicesWithoutCostSheet.length > 3 ? '...' : ''}. No sabes cuánto te deja cada uno hasta que calcules su ficha de costo.`,
+            view: 'costSheet',
+            actionLabel: 'Calcular ficha'
+        });
+    }
+
+    const uncostedIncomeThisMonth = incomeEntries.filter((entry) => (
+        isDateInMonth(entry.date, referenceDate) && !entry.costSheetId
+    ));
+    if (uncostedIncomeThisMonth.length > 0) {
+        addIssue({
+            id: 'income_without_cost_sheet',
+            title: `${uncostedIncomeThisMonth.length} cobro(s) de este mes sin ficha de costo`,
+            description: 'La ganancia que ves puede ser menor a la real. Calcula la ficha del servicio y vuelve a entrar.',
+            view: 'costSheet',
+            actionLabel: 'Calcular ficha'
+        });
+    }
+
+    return issues;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         SUPPORTED_CURRENCIES,
@@ -315,6 +427,7 @@ if (typeof module !== 'undefined' && module.exports) {
         getTodayKey,
         getLocalDateKey,
         makeId,
+        normalizeFinanceText,
         toNumber,
         getRateToMainCurrency,
         convertToMainCurrency,
@@ -332,6 +445,8 @@ if (typeof module !== 'undefined' && module.exports) {
         getExpenseImpact,
         getMaterialCostPerUse,
         getMaterialCostPerUseMain,
-        calculateCostSheet
+        calculateCostSheet,
+        isDateInMonth,
+        auditFinanceState
     };
 }

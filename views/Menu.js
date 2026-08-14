@@ -69,6 +69,18 @@ function Menu({ onNavigate }) {
                 ))}
             </div>
 
+            <button type="button" onClick={() => onNavigate('wizard')} className="setup-step mt-5">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 bg-[var(--primary-light)]">
+                    <div className="icon-sparkles text-[var(--primary)] text-2xl"></div>
+                </div>
+                <div className="flex-1">
+                    <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">Asistente</p>
+                    <h3 className="font-bold text-gray-900">Revisa cómo van tus finanzas</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">Reviso tus datos reales y te digo qué falta o qué está mal.</p>
+                </div>
+                <div className="icon-chevron-right text-gray-300"></div>
+            </button>
+
             <details className="simple-details mt-5">
                 <summary>Ver otras opciones</summary>
                 <div className="space-y-2 pt-3">

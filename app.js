@@ -115,6 +115,7 @@ function App() {
       case 'income': return <Income />;
       case 'expenses': return <Expenses />;
       case 'menu': return <Menu onNavigate={navigate} />;
+      case 'wizard': return <Wizard onNavigate={navigate} />;
       case 'services': return <Services onBack={() => navigate('menu')} />;
       case 'materials': return <Materials onBack={() => navigate('menu')} />;
       case 'costSheet': return <CostSheet onBack={() => navigate('menu')} />;

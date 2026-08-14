@@ -28,6 +28,7 @@ const sourceOrder = [
     'views/Income.js',
     'views/Expenses.js',
     'views/Menu.js',
+    'views/Wizard.js',
     'views/Services.js',
     'views/Materials.js',
     'views/CostSheet.js',
