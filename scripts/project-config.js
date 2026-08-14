@@ -4,8 +4,8 @@ const path = require('path');
 const UNCONFIGURED_SUPABASE_URL = 'https://project-not-configured.supabase.co';
 const UNCONFIGURED_SUPABASE_KEY = 'public-anon-key-not-configured';
 
-function readLocalEnvironment() {
-    const envPath = path.resolve(__dirname, '..', '.env.local');
+function readLocalEnvironment(fileName = '.env.local') {
+    const envPath = path.resolve(__dirname, '..', fileName);
     if (!fs.existsSync(envPath)) return {};
 
     return fs.readFileSync(envPath, 'utf8')
@@ -49,4 +49,4 @@ function getProjectConfig() {
     };
 }
 
-module.exports = { getProjectConfig };
+module.exports = { getProjectConfig, readLocalEnvironment };

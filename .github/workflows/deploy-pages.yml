@@ -54,9 +54,10 @@ jobs:
 
       - name: Build web
         env:
-          # GitHub Pages es la producción federada. Mantener el modo explícito
-          # evita que una variable antigua reactive el login RPC retirado.
-          ROMA_BACKEND_MODE: federated-rservasroma
+          # Roma Finanzas vive dentro del proyecto de RservasRoma: misma base,
+          # login por RPC con el usuario del negocio. Ya no hay base aparte ni
+          # puente federado, asi que el modo va explicito aqui.
+          ROMA_BACKEND_MODE: shared-rpc
           ROMA_SUPABASE_URL: ${{ vars.ROMA_SUPABASE_URL }}
           ROMA_SUPABASE_ANON_KEY: ${{ vars.ROMA_SUPABASE_ANON_KEY }}
         run: npm run build:web

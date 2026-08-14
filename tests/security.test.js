@@ -179,12 +179,14 @@ test('las sesiones antiguas no pueden restaurar otro negocio', () => {
     assert.match(client, /removeItem\(ROMA_LEGACY_SESSION_KEY\)/);
 });
 
-test('GitHub Pages publica siempre el acceso federado de producción', () => {
+test('GitHub Pages publica siempre el login RPC del proyecto compartido', () => {
     const pagesWorkflow = fs.readFileSync(
         path.join(root, '.github', 'workflows', 'deploy-pages.yml'),
         'utf8'
     );
 
-    assert.match(pagesWorkflow, /ROMA_BACKEND_MODE: federated-rservasroma/);
+    // Roma Finanzas vive dentro del proyecto de RservasRoma. El modo va fijo en
+    // el workflow para que una variable vieja no reactive la base aparte.
+    assert.match(pagesWorkflow, /ROMA_BACKEND_MODE: shared-rpc/);
     assert.equal(pagesWorkflow.includes('ROMA_BACKEND_MODE: ${{ vars.ROMA_BACKEND_MODE }}'), false);
 });

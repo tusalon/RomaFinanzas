@@ -14,3 +14,4 @@ apk-output/
 .env.local
 *.jks
 *.keystore
+supabase/.temp/
