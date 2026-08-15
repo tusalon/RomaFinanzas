@@ -864,14 +864,21 @@ async function loadRomaFinanceData(business) {
     const newBookingEntries = bookingIncomeEntries.filter((entry) => !persistedBookingIds.has(String(entry.bookingId || '')));
 
     if (token && navigator.onLine !== false && validateFinanceConfig(config).length === 0) {
-        for (const entry of newBookingEntries.slice(0, 200)) {
-            try {
-                await saveRomaFinanceIncome(business.id, entry);
-            } catch (error) {
-                console.warn('No se pudo guardar la fotografía financiera de una cita:', error);
-                break;
+        // No se espera aqui: guardar cada cita es un viaje de red aparte, y un
+        // salon con muchas citas nuevas puede tener decenas pendientes. Estas
+        // citas ya se ven en pantalla (entran mezcladas en incomeById mas
+        // abajo desde bookingIncomeEntries); esto solo las deja guardadas en
+        // el servidor en segundo plano, sin bloquear el login.
+        (async () => {
+            for (const entry of newBookingEntries.slice(0, 200)) {
+                try {
+                    await saveRomaFinanceIncome(business.id, entry);
+                } catch (error) {
+                    console.warn('No se pudo guardar la fotografía financiera de una cita:', error);
+                    break;
+                }
             }
-        }
+        })();
     }
 
     const incomeById = new Map();
