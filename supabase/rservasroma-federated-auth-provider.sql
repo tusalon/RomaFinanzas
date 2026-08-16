@@ -42,6 +42,7 @@ declare
     v_slug text := lower(btrim(coalesce(p_slug, '')));
     v_password text := btrim(coalesce(p_password, ''));
     v_attempt roma_finanzas_auth_private.login_attempts%rowtype;
+    v_password_hash text;
 begin
     if v_slug = '' or length(v_slug) > 128 or v_password = '' or length(v_password) > 512 then
         return jsonb_build_object(
@@ -75,9 +76,14 @@ begin
         using v_slug;
     end if;
 
+    -- Ver la nota equivalente en roma-finanzas-access.sql: pgcrypto no
+    -- reconoce $2b$ en este proyecto, solo $2a$. Se reescribe el marcador
+    -- antes de comparar; el cuerpo del hash es identico entre variantes.
+    v_password_hash := regexp_replace(v_business.password_hash, '^\$2[by]\$', '$2a$');
+
     if v_business.id is null
        or v_business.password_hash is null
-       or extensions.crypt(v_password, v_business.password_hash) <> v_business.password_hash then
+       or extensions.crypt(v_password, v_password_hash) <> v_password_hash then
         insert into roma_finanzas_auth_private.login_attempts (
             slug_normalized, failed_count, window_started_at, locked_until
         ) values (

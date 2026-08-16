@@ -129,7 +129,12 @@ test('las propinas se convierten en el servidor y no alteran el precio del servi
 });
 
 test('el acceso compartido valida la contrasena solo dentro de RservasRoma', () => {
-    assert.match(federatedProvider, /extensions\.crypt\(v_password, v_business\.password_hash\)/);
+    // v_password_hash es v_business.password_hash con el prefijo bcrypt
+    // normalizado (pgcrypto en este proyecto no reconoce $2b$, solo $2a$;
+    // el cuerpo del hash es identico entre variantes). Sigue comparando
+    // contra el hash real guardado, no contra un valor ajeno.
+    assert.match(federatedProvider, /v_password_hash := regexp_replace\(v_business\.password_hash,/);
+    assert.match(federatedProvider, /extensions\.crypt\(v_password, v_password_hash\)/);
     assert.match(federatedProvider, /verify_roma_finanzas_identity/);
     assert.match(federatedProvider, /'error', 'invalid_credentials'/);
     assert.equal(federatedProvider.includes("'password_hash', v_business.password_hash"), false);

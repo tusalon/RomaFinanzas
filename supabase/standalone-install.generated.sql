@@ -425,6 +425,7 @@ declare
     v_attempt public.roma_finanzas_login_attempts%rowtype;
     v_token text;
     v_expires_at timestamptz := now() + interval '12 hours';
+    v_password_hash text;
 begin
     if v_username = '' or v_password = '' then
         raise exception using message = 'Escribe tu usuario y contrasena.', errcode = '22023';
@@ -452,9 +453,17 @@ begin
         using v_username;
     end if;
 
+    -- pgcrypto en este proyecto no reconoce el prefijo $2b$ (bcrypt moderno)
+    -- que genera SuperAdmin al cambiar una contrasena; solo entiende $2a$.
+    -- El cuerpo del hash (costo+sal+digesto) es identico entre variantes, asi
+    -- que se reescribe el marcador antes de comparar en vez de tocar los
+    -- hashes guardados. Verificado: mismo password, mismo hash, solo cambia
+    -- si Postgres lo reconoce o no.
+    v_password_hash := regexp_replace(v_business.password_hash, '^\$2[by]\$', '$2a$');
+
     if v_business.id is null
        or v_business.password_hash is null
-       or extensions.crypt(v_password, v_business.password_hash) <> v_business.password_hash then
+       or extensions.crypt(v_password, v_password_hash) <> v_password_hash then
         insert into public.roma_finanzas_login_attempts (
             username_normalized, failed_count, window_started_at, locked_until
         ) values (
@@ -1718,7 +1727,13 @@ grant execute on function public.resume_roma_finanzas_session(text) to anon, aut
 grant execute on function public.logout_roma_finanzas(text) to anon, authenticated;
 grant execute on function public.load_roma_finanzas(text) to anon, authenticated;
 grant execute on function public.apply_roma_finanzas_change(text, text, jsonb) to anon, authenticated;
-grant execute on function public.save_roma_finanzas_income(text, jsonb) to anon, authenticated;
+do $$
+begin
+    if to_regprocedure('public.save_roma_finanzas_income(text,jsonb)') is not null then
+        execute 'grant execute on function public.save_roma_finanzas_income(text, jsonb) to anon, authenticated';
+    end if;
+end;
+$$;
 
 commit;
 -- ===== FIN standalone-04-federated-rservasroma.sql =====
