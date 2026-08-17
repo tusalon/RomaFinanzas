@@ -163,6 +163,8 @@ function saveRomaSession(business, token = '', expiresAt = '') {
     };
     window.localStorage.removeItem(ROMA_LEGACY_SESSION_KEY);
     window.localStorage.setItem(ROMA_SESSION_KEY, JSON.stringify(session));
+    // Sesion nueva: se rearma el cortafuegos de mas abajo.
+    sesionFinanzasRechazada = false;
     return session;
 }
 
@@ -426,7 +428,43 @@ async function logoutRomaFinanzas() {
     }
 }
 
+// Cortafuegos de sesion rechazada.
+//
+// El token de Finanzas dura 12 h. Cuando vence, session_business_id() lanza una
+// excepcion y la transaccion se aborta sin tocar ninguna tabla. Repetir la
+// llamada no lo arregla: el servidor la va a rechazar igual. Clientes ya
+// desplegados (sobre todo APK, que no se actualizan solas) se quedaron
+// reintentando sin fin: el 17/08/2026 se midieron 107 millones de
+// transacciones abortadas, 2.556 por cada una que funcionaba, y tumbaron la
+// base entera.
+//
+// En cuanto el servidor dice que la sesion no vale, se corta aqui: se borra la
+// sesion y no se vuelve a llamar en lo que dura la pagina. Como todas las
+// funciones con token salen por getRomaSessionToken() y ya devuelven sin
+// llamar cuando no hay token, esto detiene CUALQUIER bucle, este donde este.
+let sesionFinanzasRechazada = false;
+
+function esSesionRechazada(error) {
+    const mensaje = String(error?.message || '').toLowerCase();
+    return error?.code === '28000'
+        || mensaje.includes('sesion vencio')
+        || mensaje.includes('sesión venció')
+        || mensaje.includes('sesion invalida')
+        || mensaje.includes('sesión inválida')
+        || mensaje.includes('no tiene acceso activo');
+}
+
+function marcarSesionFinanzasRechazada() {
+    sesionFinanzasRechazada = true;
+    try {
+        window.localStorage.removeItem(ROMA_SESSION_KEY);
+    } catch (error) {
+        console.warn('No se pudo borrar la sesión rechazada:', error);
+    }
+}
+
 function getRomaSessionToken() {
+    if (sesionFinanzasRechazada) return '';
     return readRomaSession()?.token || '';
 }
 
@@ -439,7 +477,10 @@ async function applyRomaFinanceChange(operation, payload) {
         p_operation: operation,
         p_payload: payload || {}
     });
-    if (error) throw error;
+    if (error) {
+        if (esSesionRechazada(error)) marcarSesionFinanzasRechazada();
+        throw error;
+    }
     return Array.isArray(data) ? data[0] : data;
 }
 
@@ -455,7 +496,10 @@ async function saveRomaFinanceIncomeWithTip(payload) {
         p_token: token,
         p_payload: payload || {}
     });
-    if (error) throw error;
+    if (error) {
+        if (esSesionRechazada(error)) marcarSesionFinanzasRechazada();
+        throw error;
+    }
     return Array.isArray(data) ? data[0] : data;
 }
 
