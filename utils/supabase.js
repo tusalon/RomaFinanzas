@@ -472,7 +472,14 @@ async function applyRomaFinanceChange(operation, payload) {
     const token = getRomaSessionToken();
     if (!token) return null;
 
-    const { data, error } = await romaSupabase.rpc('apply_roma_finanzas_change', {
+    // El nombre lleva _v2 a proposito. El 17/08/2026 clientes ya desplegados
+    // se quedaron llamando a apply_roma_finanzas_change en bucle con un token
+    // muerto: 1.429 transacciones abortadas por segundo tumbaron la base de
+    // RservasRoma entera y la API empezo a devolver 504. Al renombrar la
+    // funcion, esas versiones viejas reciben un 404 que PostgREST responde de
+    // su cache en memoria, sin abrir transaccion: pueden seguir insistiendo
+    // sin costarle nada al servidor. NO recrear el nombre viejo.
+    const { data, error } = await romaSupabase.rpc('apply_roma_finanzas_change_v2', {
         p_token: token,
         p_operation: operation,
         p_payload: payload || {}
