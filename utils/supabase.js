@@ -163,8 +163,9 @@ function saveRomaSession(business, token = '', expiresAt = '') {
     };
     window.localStorage.removeItem(ROMA_LEGACY_SESSION_KEY);
     window.localStorage.setItem(ROMA_SESSION_KEY, JSON.stringify(session));
-    // Sesion nueva: se rearma el cortafuegos de mas abajo.
+    // Sesion nueva: se rearma el cortafuegos y se borra el freno de espera.
     sesionFinanzasRechazada = false;
+    limpiarFreno();
     return session;
 }
 
@@ -444,6 +445,40 @@ async function logoutRomaFinanzas() {
 // llamar cuando no hay token, esto detiene CUALQUIER bucle, este donde este.
 let sesionFinanzasRechazada = false;
 
+// El freno vive en localStorage y NO en memoria: la version anterior se
+// reiniciaba en cada carga de pagina, asi que cerrar y abrir la app rearmaba el
+// bucle. Ahora sobrevive a recargas, cierres y reinicios del telefono.
+const ROMA_FRENO_KEY = `${ROMA_SESSION_KEY}_freno`;
+
+// Esperas tras 3 fallos seguidos. Un corte de internet se sigue reintentando
+// -- eso si tiene arreglo solo -- pero nunca a mil llamadas por segundo.
+const ROMA_FRENO_ESPERAS_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
+const ROMA_FRENO_FALLOS_ANTES_DE_ESPERAR = 3;
+
+function leerFreno() {
+    try {
+        return JSON.parse(window.localStorage.getItem(ROMA_FRENO_KEY) || '{}') || {};
+    } catch (error) {
+        return {};
+    }
+}
+
+function guardarFreno(freno) {
+    try {
+        window.localStorage.setItem(ROMA_FRENO_KEY, JSON.stringify(freno));
+    } catch (error) {
+        console.warn('No se pudo guardar el freno de llamadas:', error);
+    }
+}
+
+function limpiarFreno() {
+    try {
+        window.localStorage.removeItem(ROMA_FRENO_KEY);
+    } catch (error) {
+        console.warn('No se pudo limpiar el freno de llamadas:', error);
+    }
+}
+
 function esSesionRechazada(error) {
     const mensaje = String(error?.message || '').toLowerCase();
     return error?.code === '28000'
@@ -454,8 +489,29 @@ function esSesionRechazada(error) {
         || mensaje.includes('no tiene acceso activo');
 }
 
+// El servidor dejo de lanzar excepciones para las sesiones muertas: ahora
+// responde 200 con {ok:false, motivo:...} para no abortar transacciones (ver
+// supabase/blindaje-01-servidor.sql). Hay que leerlo como sesion rechazada,
+// no como exito, o el cliente daria por guardado algo que no se guardo.
+const ROMA_MOTIVOS_SESION_MUERTA = ['sesion_invalida', 'sesion_vencida', 'sin_acceso'];
+
+// Lo que ve la duena. "Sesion invalida" no le dice nada; "vuelve a entrar" si.
+function mensajeDeMotivo(motivo) {
+    if (motivo === 'sin_acceso') return 'Tu negocio no tiene Roma Finanzas activo. Escríbenos para activarlo.';
+    if (motivo === 'demasiadas_llamadas') return 'La app está haciendo demasiadas peticiones. Espera un minuto y vuelve a intentarlo.';
+    return 'Tu sesión venció. Entra de nuevo.';
+}
+
+function motivoDeRespuesta(data) {
+    const fila = Array.isArray(data) ? data[0] : data;
+    if (!fila || typeof fila !== 'object') return '';
+    if (fila.ok !== false) return '';
+    return String(fila.motivo || 'desconocido');
+}
+
 function marcarSesionFinanzasRechazada() {
     sesionFinanzasRechazada = true;
+    guardarFreno({ muerta: true, desde: Date.now() });
     try {
         window.localStorage.removeItem(ROMA_SESSION_KEY);
     } catch (error) {
@@ -463,8 +519,45 @@ function marcarSesionFinanzasRechazada() {
     }
 }
 
+// Cualquier fallo repetido frena, no solo el 28000. Ese fue el agujero de la
+// version anterior: con el pool saturado el servidor responde 504 o nada, el
+// cortafuegos no se armaba, los clientes reintentaban y el sistema no podia
+// salir del bucle por si mismo.
+function registrarFalloFinanzas(error) {
+    if (esSesionRechazada(error)) {
+        marcarSesionFinanzasRechazada();
+        return;
+    }
+
+    const freno = leerFreno();
+    const fallos = (Number(freno.fallos) || 0) + 1;
+    if (fallos < ROMA_FRENO_FALLOS_ANTES_DE_ESPERAR) {
+        guardarFreno({ ...freno, fallos });
+        return;
+    }
+
+    const paso = Math.min(
+        fallos - ROMA_FRENO_FALLOS_ANTES_DE_ESPERAR,
+        ROMA_FRENO_ESPERAS_MS.length - 1
+    );
+    guardarFreno({ ...freno, fallos, hasta: Date.now() + ROMA_FRENO_ESPERAS_MS[paso] });
+}
+
+function registrarExitoFinanzas() {
+    const freno = leerFreno();
+    if (freno.fallos || freno.hasta) limpiarFreno();
+}
+
+// Devuelve '' mientras el freno esta puesto. Como TODAS las funciones con token
+// salen por aqui y ya devuelven sin llamar cuando no hay token, esto detiene
+// cualquier bucle, este donde este.
 function getRomaSessionToken() {
     if (sesionFinanzasRechazada) return '';
+
+    const freno = leerFreno();
+    if (freno.muerta) return '';
+    if (freno.hasta && Date.now() < Number(freno.hasta)) return '';
+
     return readRomaSession()?.token || '';
 }
 
@@ -479,15 +572,24 @@ async function applyRomaFinanceChange(operation, payload) {
     // funcion, esas versiones viejas reciben un 404 que PostgREST responde de
     // su cache en memoria, sin abrir transaccion: pueden seguir insistiendo
     // sin costarle nada al servidor. NO recrear el nombre viejo.
-    const { data, error } = await romaSupabase.rpc('apply_roma_finanzas_change_v2', {
+    const { data, error } = await romaSupabase.rpc('apply_roma_finanzas_change_v3', {
         p_token: token,
         p_operation: operation,
         p_payload: payload || {}
     });
     if (error) {
-        if (esSesionRechazada(error)) marcarSesionFinanzasRechazada();
+        registrarFalloFinanzas(error);
         throw error;
     }
+
+    const motivo = motivoDeRespuesta(data);
+    if (motivo) {
+        if (ROMA_MOTIVOS_SESION_MUERTA.includes(motivo)) marcarSesionFinanzasRechazada();
+        else registrarFalloFinanzas({ message: motivo });
+        throw new Error(mensajeDeMotivo(motivo));
+    }
+
+    registrarExitoFinanzas();
     return Array.isArray(data) ? data[0] : data;
 }
 
@@ -504,9 +606,18 @@ async function saveRomaFinanceIncomeWithTip(payload) {
         p_payload: payload || {}
     });
     if (error) {
-        if (esSesionRechazada(error)) marcarSesionFinanzasRechazada();
+        registrarFalloFinanzas(error);
         throw error;
     }
+
+    const motivo = motivoDeRespuesta(data);
+    if (motivo) {
+        if (ROMA_MOTIVOS_SESION_MUERTA.includes(motivo)) marcarSesionFinanzasRechazada();
+        else registrarFalloFinanzas({ message: motivo });
+        throw new Error(mensajeDeMotivo(motivo));
+    }
+
+    registrarExitoFinanzas();
     return Array.isArray(data) ? data[0] : data;
 }
 
@@ -835,7 +946,17 @@ async function loadRomaFinanceData(business) {
 
     if (token) {
         const { data, error } = await romaSupabase.rpc('load_roma_finanzas', { p_token: token });
-        if (error) throw error;
+        if (error) {
+            registrarFalloFinanzas(error);
+            throw error;
+        }
+        const motivoCarga = motivoDeRespuesta(data);
+        if (motivoCarga) {
+            if (ROMA_MOTIVOS_SESION_MUERTA.includes(motivoCarga)) marcarSesionFinanzasRechazada();
+            else registrarFalloFinanzas({ message: motivoCarga });
+            throw new Error(mensajeDeMotivo(motivoCarga));
+        }
+        registrarExitoFinanzas();
         const bundle = Array.isArray(data) ? data[0] : (data || {});
         configResponse = { data: Object.keys(bundle.config || {}).length ? bundle.config : null, error: null };
         servicesResponse = { data: bundle.services || [], error: null };
