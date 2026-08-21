@@ -17,6 +17,18 @@ android {
         }
     }
     signingConfigs {
+        // Firma v1 encendida a mano en los dos tipos de compilacion. Con
+        // minSdk 24 el plugin de Android la apaga sola, porque desde Android 7
+        // basta la v2. En la practica no: el 20/08/2026 varias duenas
+        // recibieron "error al analizar el paquete" al instalar el APK de
+        // Rservasroma, que tenia exactamente este mismo problema, y hay capas
+        // de fabricante que siguen exigiendo la firma vieja de META-INF.
+        // Encenderla solo anade unos KB.
+        debug {
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+        }
         release {
             def releaseStorePath = System.getenv("ROMA_ANDROID_KEYSTORE")
             if (releaseStorePath) {
@@ -25,6 +37,9 @@ android {
                 keyAlias System.getenv("ROMA_ANDROID_KEY_ALIAS")
                 keyPassword System.getenv("ROMA_ANDROID_KEY_PASSWORD")
             }
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
         }
     }
     buildTypes {
