@@ -26,6 +26,10 @@ function CostSheet({ onBack }) {
     const [includeOverhead, setIncludeOverhead] = React.useState(true);
     const [showAdvanced, setShowAdvanced] = React.useState(false);
     const [savedMessage, setSavedMessage] = React.useState('');
+    // Ficha recién guardada y cuántos cobros viejos podría arreglar.
+    const [fichaRecien, setFichaRecien] = React.useState(null);
+    const [cobrosRecuperables, setCobrosRecuperables] = React.useState(0);
+    const [recalculando, setRecalculando] = React.useState(false);
     const [copyMessage, setCopyMessage] = React.useState('');
     const [editingSheetId, setEditingSheetId] = React.useState('');
     const savedMaterials = state.materials || [];
@@ -310,7 +314,7 @@ function CostSheet({ onBack }) {
 
     const saveSheet = async () => {
         if (!selectedService) return;
-        await actions.saveCostSheet({
+        const sheetGuardada = await actions.saveCostSheet({
             id: editingSheetId || undefined,
             serviceId: selectedService.id,
             serviceName: selectedService.name,
@@ -339,6 +343,29 @@ function CostSheet({ onBack }) {
         });
         setSavedMessage(editingSheetId ? 'Cálculo actualizado.' : 'Cálculo guardado.');
         setEditingSheetId('');
+        setFichaRecien(sheetGuardada || null);
+        setCobrosRecuperables(sheetGuardada ? (actions.contarCobrosRecuperables?.(sheetGuardada) || 0) : 0);
+    };
+
+    // Casi nadie calcula la ficha antes de empezar a cobrar: primero cobra y
+    // luego se sienta a hacer números. Esos cobros ya guardados se quedaron con
+    // costo 0 y "ganancia" igual a la venta entera, y hasta ahora no había
+    // forma de recuperarlos. Se ofrece, no se hace solo: es su dinero.
+    const aplicarACobrosAnteriores = async () => {
+        if (!fichaRecien || recalculando) return;
+        setRecalculando(true);
+        try {
+            const r = await actions.recalcularCobrosDeFicha(fichaRecien);
+            setCobrosRecuperables(0);
+            setSavedMessage(r.fallidos
+                ? `Se actualizaron ${r.actualizados} de ${r.total} cobros. Los ${r.fallidos} que faltan quedaron guardados para cuando vuelva el internet.`
+                : `Listo: ${r.actualizados} cobro(s) anteriores ya tienen su costo real.`);
+        } catch (error) {
+            console.error('No se pudieron recalcular los cobros:', error);
+            setSavedMessage('No se pudieron actualizar los cobros anteriores. Intenta otra vez.');
+        } finally {
+            setRecalculando(false);
+        }
     };
 
     const editSheet = (sheet) => {
@@ -830,6 +857,42 @@ function CostSheet({ onBack }) {
                     {(savedMessage || copyMessage) && (
                         <div className="bg-green-50 border border-green-100 text-green-700 rounded-xl p-3 text-sm">
                             {savedMessage || copyMessage}
+                        </div>
+                    )}
+
+                    {cobrosRecuperables > 0 && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+                            <div>
+                                <p className="font-semibold text-amber-900">
+                                    Tienes {cobrosRecuperables} cobro(s) de este servicio sin costo
+                                </p>
+                                <p className="text-sm text-amber-800 mt-1">
+                                    Los cobraste antes de hacer este cálculo, así que figuran con toda
+                                    la venta como ganancia. Puedo aplicarles este costo para que veas
+                                    lo que ganaste de verdad.
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={aplicarACobrosAnteriores}
+                                    disabled={recalculando}
+                                    className="btn-primary disabled:opacity-60"
+                                >
+                                    {recalculando ? 'Actualizando...' : `Aplicar a los ${cobrosRecuperables}`}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setCobrosRecuperables(0)}
+                                    disabled={recalculando}
+                                    className="btn-secondary disabled:opacity-60"
+                                >
+                                    Dejarlos como están
+                                </button>
+                            </div>
+                            <p className="text-xs text-amber-700">
+                                Solo cambia el costo y la ganancia. No toca lo que cobraste ni tu inventario.
+                            </p>
                         </div>
                     )}
 

@@ -324,6 +324,54 @@ function isDateInMonth(dateKey, referenceDate = new Date()) {
         && entryDate.getMonth() === referenceDate.getMonth();
 }
 
+// Cobros que ya estaban registrados ANTES de que existiera la ficha de costo
+// de su servicio, y que por eso se quedaron con costo 0 y "ganancia" igual a
+// la venta entera.
+//
+// POR QUE HACE FALTA
+// Medido el 13-09-2026 en produccion: de 2.922 cobros vivos, 2.696 (92,3%) no
+// tienen ficha. En los 28 salones que SI se molestaron en crear fichas, solo
+// el 10,7% de sus cobros automaticos las usa, porque casi siempre la ficha se
+// crea despues de haber estado cobrando. Son 762 cobros recuperables en 21
+// salones; al guardar UNA ficha la mediana es 4 cobros y el maximo 119.
+//
+// El emparejado NO se reimplementa aqui: se recibe el mismo constructor de
+// snapshot que usa un cobro nuevo (buildIncomeFinancialSnapshot), para que un
+// cobro recalculado quede identico a uno registrado hoy. Si algun dia cambia
+// esa formula, cambia en los dos sitios a la vez porque es la misma.
+function planificarRecalculoDeCobros(state, opciones = {}) {
+    const { serviceId, desde, construirSnapshot } = opciones;
+    if (typeof construirSnapshot !== 'function') return [];
+
+    const costSheets = state?.costSheets || [];
+    const config = state?.config || {};
+    const desdeClave = desde ? String(desde) : '';
+
+    return (state?.incomeEntries || []).reduce((pendientes, entry) => {
+        // Sin servicio no hay ficha posible: no hay nada que recalcular.
+        if (!entry?.serviceId) return pendientes;
+        if (serviceId && String(entry.serviceId) !== String(serviceId)) return pendientes;
+        if (desdeClave && String(entry.date || '') < desdeClave) return pendientes;
+
+        const recalculado = construirSnapshot(entry, costSheets, config);
+
+        // Solo cuenta si de verdad cambia algo. Asi el boton nunca ofrece
+        // "arreglar" cobros que ya estaban bien, ni se reescriben filas para
+        // dejarlas igual (cada guardado gasta una peticion y sube la version).
+        const cambiaFicha = String(recalculado.costSheetId || '') !== String(entry.costSheetId || '');
+        const cambiaCosto = toNumber(recalculado.unitCostMain) !== toNumber(entry.unitCostMain);
+        if (!cambiaFicha && !cambiaCosto) return pendientes;
+
+        // Nunca al reves: si el cobro ya tiene un costo calculado y el
+        // recalculo lo dejaria en cero (por ejemplo si borraron la ficha), se
+        // deja como esta. Quitar un dato bueno es peor que no anadir uno.
+        if (toNumber(entry.unitCostMain) > 0 && toNumber(recalculado.unitCostMain) === 0) return pendientes;
+
+        pendientes.push(recalculado);
+        return pendientes;
+    }, []);
+}
+
 // Revisa los datos reales del negocio y devuelve solo lo que de verdad
 // distorsiona los calculos o falta para que el diagnostico sea confiable.
 // No repite validateFinanceConfig como issue aparte: si la config esta mal,
@@ -447,6 +495,7 @@ if (typeof module !== 'undefined' && module.exports) {
         getMaterialCostPerUseMain,
         calculateCostSheet,
         isDateInMonth,
+        planificarRecalculoDeCobros,
         auditFinanceState
     };
 }

@@ -866,6 +866,67 @@ function FinanceProvider({ children }) {
             return savedSheet;
         },
 
+        // Cuantos cobros ya guardados cambiarian si se aplicara esta ficha.
+        // Solo cuenta; no toca nada. Sirve para poder preguntar antes.
+        contarCobrosRecuperables(sheet, desde) {
+            return planificarRecalculoDeCobros(stateRef.current, {
+                serviceId: sheet?.serviceId,
+                desde,
+                construirSnapshot: buildIncomeFinancialSnapshot
+            }).length;
+        },
+
+        // Aplica la ficha a los cobros anteriores de ese servicio.
+        //
+        // OJO: aqui NO se llama a planIncomeInventory a proposito. addIncome si
+        // lo hace, porque un cobro nuevo gasta material de verdad. Estos cobros
+        // ya ocurrieron y su material ya se desconto (o nunca se registro):
+        // volver a descontarlo dejaria el almacen en negativo. Aqui solo se
+        // recalculan los numeros.
+        async recalcularCobrosDeFicha(sheet, desde) {
+            const pendientes = planificarRecalculoDeCobros(stateRef.current, {
+                serviceId: sheet?.serviceId,
+                desde,
+                construirSnapshot: buildIncomeFinancialSnapshot
+            });
+            if (!pendientes.length) return { total: 0, actualizados: 0, fallidos: 0 };
+
+            const porId = new Map(pendientes.map((entry) => [String(entry.id), entry]));
+            setState((current) => ({
+                ...current,
+                incomeEntries: (current.incomeEntries || []).map((row) => porId.get(String(row.id)) || row)
+            }));
+
+            if (!activeBusinessIdRef.current) {
+                pendientes.forEach((entry) => queueSync({ type: 'income', id: entry.id }));
+                return { total: pendientes.length, actualizados: 0, fallidos: pendientes.length };
+            }
+
+            let actualizados = 0;
+            let fallidos = 0;
+            for (const entry of pendientes) {
+                try {
+                    const resultado = await saveRomaFinanceIncome(activeBusinessIdRef.current, entry);
+                    applyServerVersion(entry, resultado);
+                    actualizados += 1;
+                } catch (error) {
+                    // Uno que falle no puede tumbar los demas: se encola y se
+                    // sigue. Con 119 cobros en el peor caso, cortar a la
+                    // primera dejaria el trabajo a medias sin avisar.
+                    console.error('No se pudo recalcular un cobro:', error);
+                    queueSync({ type: 'income', id: entry.id }, 'Cobros recalculados offline. Sincroniza cuando tengas internet.');
+                    fallidos += 1;
+                }
+            }
+
+            setState((current) => ({
+                ...current,
+                syncStatus: (current.pendingSync || []).length ? 'pending' : 'synced'
+            }));
+
+            return { total: pendientes.length, actualizados, fallidos };
+        },
+
         async deleteCostSheet(id) {
             setState((current) => ({
                 ...current,
