@@ -870,7 +870,7 @@ function FinanceProvider({ children }) {
         // Solo cuenta; no toca nada. Sirve para poder preguntar antes.
         contarCobrosRecuperables(sheet, desde) {
             return planificarRecalculoDeCobros(stateRef.current, {
-                serviceId: sheet?.serviceId,
+                sheet,
                 desde,
                 construirSnapshot: buildIncomeFinancialSnapshot
             }).length;
@@ -885,11 +885,26 @@ function FinanceProvider({ children }) {
         // recalculan los numeros.
         async recalcularCobrosDeFicha(sheet, desde) {
             const pendientes = planificarRecalculoDeCobros(stateRef.current, {
-                serviceId: sheet?.serviceId,
+                sheet,
                 desde,
                 construirSnapshot: buildIncomeFinancialSnapshot
             });
             if (!pendientes.length) return { total: 0, actualizados: 0, fallidos: 0 };
+
+            // La ficha pasa a estar vigente desde el cobro mas viejo que se
+            // acaba de recalcular. Sin esto, los cobros quedarian apuntando a
+            // una ficha que "empieza" despues que ellos: incoherente, y el
+            // proximo recalculo volveria a ofrecer lo mismo.
+            const vigenciaNueva = pendientes
+                .map((entry) => String(entry.date || ''))
+                .filter(Boolean)
+                .sort()[0] || sheet?.effectiveFrom;
+            // Se referencia "actions" y no "this": si alguien desestructura la
+            // accion (const { recalcularCobrosDeFicha } = actions), this se
+            // pierde y esto reventaria justo en el unico momento que importa.
+            if (sheet && vigenciaNueva && String(vigenciaNueva) < String(sheet.effectiveFrom || '')) {
+                await actions.saveCostSheet({ ...sheet, effectiveFrom: vigenciaNueva });
+            }
 
             const porId = new Map(pendientes.map((entry) => [String(entry.id), entry]));
             setState((current) => ({

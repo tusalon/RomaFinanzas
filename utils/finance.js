@@ -339,13 +339,41 @@ function isDateInMonth(dateKey, referenceDate = new Date()) {
 // snapshot que usa un cobro nuevo (buildIncomeFinancialSnapshot), para que un
 // cobro recalculado quede identico a uno registrado hoy. Si algun dia cambia
 // esa formula, cambia en los dos sitios a la vez porque es la misma.
+//
+// LA VIGENCIA HAY QUE RETRASARLA A PROPOSITO
+// Una ficha nace vigente HOY, y el constructor de snapshot se niega -con
+// razon- a aplicarle a un cobro de la semana pasada un costo que empieza hoy.
+// Si no se tocara esa vigencia, esta funcion no encontraria NUNCA nada que
+// recalcular. Comprobado en LAG Barberia el 13-09-2026: tres cobros del 8, 9 y
+// 10 y una ficha guardada el 13 -> cero propuestas.
+// Por eso se evalua con una copia de la ficha vigente desde "desde". Cuando la
+// duena acepta, el store guarda tambien esa vigencia nueva, para que el dato
+// quede coherente y no dependa de un calculo en memoria.
 function planificarRecalculoDeCobros(state, opciones = {}) {
-    const { serviceId, desde, construirSnapshot } = opciones;
+    const { sheet, desde, construirSnapshot } = opciones;
     if (typeof construirSnapshot !== 'function') return [];
 
-    const costSheets = state?.costSheets || [];
+    const serviceId = opciones.serviceId || sheet?.serviceId;
     const config = state?.config || {};
-    const desdeClave = desde ? String(desde) : '';
+
+    // Sin fecha elegida se retrocede hasta el cobro mas viejo de ese servicio:
+    // es lo que la duena espera de "aplicar a los anteriores". Si se dejara la
+    // vigencia de hoy, el resultado seria siempre cero.
+    const candidatos = (state?.incomeEntries || []).filter((entry) => (
+        entry?.serviceId && (!serviceId || String(entry.serviceId) === String(serviceId))
+    ));
+    const masViejo = candidatos
+        .map((entry) => String(entry.date || ''))
+        .filter(Boolean)
+        .sort()[0] || '';
+    const desdeClave = desde ? String(desde) : masViejo;
+
+    // La ficha objetivo se evalua como si ya estuviera vigente en "desde".
+    const costSheets = (state?.costSheets || []).map((item) => (
+        sheet && String(item.id) === String(sheet.id) && desdeClave
+            ? { ...item, effectiveFrom: desdeClave }
+            : item
+    ));
 
     return (state?.incomeEntries || []).reduce((pendientes, entry) => {
         // Sin servicio no hay ficha posible: no hay nada que recalcular.

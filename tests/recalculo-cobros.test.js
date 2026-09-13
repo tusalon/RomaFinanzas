@@ -1,13 +1,16 @@
-// Recuperar los cobros que se registraron ANTES de que existiera la ficha de
-// costo de su servicio (planificarRecalculoDeCobros).
+// Recuperar los cobros que se hicieron ANTES de calcular la ficha de costo
+// (planificarRecalculoDeCobros).
 //
 // Lo que protege: esto reescribe cobros ya guardados. Si el plan se pasa de
-// listo, le cambia a la duena numeros que estaban bien, o le borra un costo
-// que ya tenia calculado. Y si se queda corto, no arregla nada y el boton
-// miente diciendo "0 cobros".
+// listo, le cambia a la duena numeros que estaban bien o le borra un costo que
+// ya tenia. Si se queda corto, no arregla nada y el boton ni aparece.
 //
-// Medido en produccion el 13-09-2026: 762 cobros recuperables en 21 salones;
-// al guardar UNA ficha la mediana es 4 cobros y el maximo 119.
+// LA PRIMERA VERSION DE ESTE TEST ESTABA AMANADA
+// Ponia la ficha con vigencia 2026-08-01, ANTERIOR a los cobros. Con eso todo
+// pasaba en verde y la funcion no servia para nada: probada en LAG Barberia el
+// 13-09-2026 (tres cobros del 8, 9 y 10 + ficha guardada el 13) no propuso ni
+// uno. En la vida real la ficha SIEMPRE nace despues de los cobros que hay que
+// recuperar, asi que ese es el escenario por defecto de estas pruebas.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -33,96 +36,109 @@ function construirSnapshotFalso(entry, costSheets, config) {
     };
 }
 
+// La ficha se guarda HOY, despues de los cobros. Como en la vida real.
 const FICHA = {
-    id: 'sheet_builder',
-    serviceId: 'servicio_1984',
-    effectiveFrom: '2026-08-01',
-    totals: { totalCostMain: 847 }
+    id: 'sheet_corte',
+    serviceId: 'servicio_corte',
+    effectiveFrom: '2026-09-13',
+    totals: { totalCostMain: 600 }
 };
 
 const estadoBase = {
     config: { mainCurrency: 'CUP' },
     costSheets: [FICHA],
     incomeEntries: [
-        // Cobro posterior a la ficha, sin costo: ESTE hay que arreglarlo.
-        { id: 'i1', serviceId: 'servicio_1984', date: '2026-08-15', amountMain: 1750, unitCostMain: 0, costSheetId: '' },
-        // Anterior a la vigencia: NO se toca.
-        { id: 'i2', serviceId: 'servicio_1984', date: '2026-07-20', amountMain: 1750, unitCostMain: 0, costSheetId: '' },
-        // Ya tiene la ficha aplicada: no cambia nada, no se reescribe.
-        { id: 'i3', serviceId: 'servicio_1984', date: '2026-08-20', amountMain: 1750, unitCostMain: 847, costSheetId: 'sheet_builder' },
-        // De otro servicio: ni se mira.
-        { id: 'i4', serviceId: 'servicio_otro', date: '2026-08-21', amountMain: 900, unitCostMain: 0, costSheetId: '' },
-        // Sin servicio (cobro suelto a mano): no hay ficha posible.
-        { id: 'i5', serviceId: '', date: '2026-08-22', amountMain: 500, unitCostMain: 0, costSheetId: '' }
+        { id: 'i1', serviceId: 'servicio_corte', date: '2026-09-08', amountMain: 1500, unitCostMain: 0, costSheetId: '' },
+        { id: 'i2', serviceId: 'servicio_corte', date: '2026-09-09', amountMain: 1500, unitCostMain: 0, costSheetId: '' },
+        { id: 'i3', serviceId: 'servicio_corte', date: '2026-09-10', amountMain: 1500, unitCostMain: 0, costSheetId: '' },
+        { id: 'i4', serviceId: 'servicio_otro', date: '2026-09-09', amountMain: 900, unitCostMain: 0, costSheetId: '' },
+        { id: 'i5', serviceId: '', date: '2026-09-09', amountMain: 500, unitCostMain: 0, costSheetId: '' }
     ]
 };
 
-test('solo propone los cobros que de verdad cambian', () => {
+test('EL CASO REAL: la ficha es de hoy y los cobros de antes', () => {
     const plan = planificarRecalculoDeCobros(estadoBase, {
-        serviceId: 'servicio_1984',
+        sheet: FICHA,
         construirSnapshot: construirSnapshotFalso
     });
 
-    assert.deepEqual(plan.map((e) => e.id), ['i1'], 'solo el cobro posterior a la ficha y sin costo');
-    assert.equal(plan[0].unitCostMain, 847);
-    assert.equal(plan[0].profitMain, 903, 'la ganancia pasa de 1750 a 903');
-    assert.equal(plan[0].costSheetId, 'sheet_builder');
+    assert.deepEqual(plan.map((e) => e.id), ['i1', 'i2', 'i3'],
+        'los tres cobros anteriores a la ficha son justo los que hay que recuperar');
+    assert.equal(plan[0].unitCostMain, 600);
+    assert.equal(plan[0].profitMain, 900, 'la ganancia baja de 1500 a 900');
+    assert.equal(plan[0].costSheetId, 'sheet_corte');
+});
+
+test('no toca los cobros de otro servicio ni los que no tienen servicio', () => {
+    const plan = planificarRecalculoDeCobros(estadoBase, {
+        sheet: FICHA,
+        construirSnapshot: construirSnapshotFalso
+    });
+    assert.equal(plan.some((e) => e.id === 'i4' || e.id === 'i5'), false);
+});
+
+test('la duena puede recortar desde que fecha aplicar', () => {
+    const plan = planificarRecalculoDeCobros(estadoBase, {
+        sheet: FICHA,
+        desde: '2026-09-10',
+        construirSnapshot: construirSnapshotFalso
+    });
+    assert.deepEqual(plan.map((e) => e.id), ['i3'], 'solo del 10 en adelante');
 });
 
 test('no reescribe un cobro que ya estaba bien', () => {
-    const plan = planificarRecalculoDeCobros(estadoBase, {
-        serviceId: 'servicio_1984',
+    const yaCalculado = {
+        ...estadoBase,
+        incomeEntries: [
+            { id: 'ok', serviceId: 'servicio_corte', date: '2026-09-08', amountMain: 1500, unitCostMain: 600, costSheetId: 'sheet_corte' }
+        ]
+    };
+    const plan = planificarRecalculoDeCobros(yaCalculado, {
+        sheet: FICHA,
         construirSnapshot: construirSnapshotFalso
     });
-    assert.equal(plan.some((e) => e.id === 'i3'), false,
-        'i3 ya tiene su ficha: reescribirlo gastaria una peticion para dejarlo igual');
-});
-
-test('respeta la fecha de vigencia de la ficha', () => {
-    const plan = planificarRecalculoDeCobros(estadoBase, {
-        serviceId: 'servicio_1984',
-        construirSnapshot: construirSnapshotFalso
-    });
-    assert.equal(plan.some((e) => e.id === 'i2'), false,
-        'un cobro de julio no puede llevar el costo de una ficha que empieza en agosto');
-});
-
-test('el filtro "desde" recorta todavia mas, sin ampliar nunca', () => {
-    const plan = planificarRecalculoDeCobros(estadoBase, {
-        serviceId: 'servicio_1984',
-        desde: '2026-09-01',
-        construirSnapshot: construirSnapshotFalso
-    });
-    assert.deepEqual(plan, [], 'si la duena elige desde septiembre, agosto no entra');
+    assert.deepEqual(plan, [], 'reescribirlo gastaria una peticion para dejarlo igual y subirle la version');
 });
 
 test('nunca quita un costo que ya estaba calculado', () => {
-    // La ficha se borro: el recalculo dejaria i3 en costo 0. No se toca.
-    const sinFicha = { ...estadoBase, costSheets: [] };
+    // La ficha se borro: el recalculo dejaria el cobro en costo 0. No se toca.
+    const sinFicha = {
+        ...estadoBase,
+        costSheets: [],
+        incomeEntries: [
+            { id: 'ok', serviceId: 'servicio_corte', date: '2026-09-08', amountMain: 1500, unitCostMain: 600, costSheetId: 'sheet_corte' }
+        ]
+    };
     const plan = planificarRecalculoDeCobros(sinFicha, {
-        serviceId: 'servicio_1984',
+        sheet: FICHA,
         construirSnapshot: construirSnapshotFalso
     });
-    assert.equal(plan.some((e) => e.id === 'i3'), false,
-        'borrar una ficha no puede vaciar el costo de cobros que ya lo tenian');
+    assert.deepEqual(plan, [], 'borrar una ficha no puede vaciar cobros que ya tenian costo');
 });
 
-test('sin serviceId recorre todos los servicios', () => {
-    const conDos = {
-        ...estadoBase,
-        costSheets: [FICHA, { id: 'sheet_otro', serviceId: 'servicio_otro', effectiveFrom: '2026-08-01', totals: { totalCostMain: 100 } }]
+test('la vigencia solo se retrasa para la ficha objetivo, no para las demas', () => {
+    const otraFicha = {
+        id: 'sheet_otro',
+        serviceId: 'servicio_otro',
+        effectiveFrom: '2026-09-13',
+        totals: { totalCostMain: 100 }
     };
-    const plan = planificarRecalculoDeCobros(conDos, { construirSnapshot: construirSnapshotFalso });
-    assert.deepEqual(plan.map((e) => e.id).sort(), ['i1', 'i4']);
+    const conDos = { ...estadoBase, costSheets: [FICHA, otraFicha] };
+    const plan = planificarRecalculoDeCobros(conDos, {
+        sheet: FICHA,
+        construirSnapshot: construirSnapshotFalso
+    });
+    assert.equal(plan.some((e) => e.id === 'i4'), false,
+        'i4 es de otro servicio: su ficha sigue empezando hoy y no se le aplica');
 });
 
 test('casos raros: no revienta y no inventa', () => {
-    assert.deepEqual(planificarRecalculoDeCobros({}, { construirSnapshot: construirSnapshotFalso }), []);
-    assert.deepEqual(planificarRecalculoDeCobros(null, { construirSnapshot: construirSnapshotFalso }), []);
-    assert.deepEqual(planificarRecalculoDeCobros(estadoBase, {}), [],
+    assert.deepEqual(planificarRecalculoDeCobros({}, { sheet: FICHA, construirSnapshot: construirSnapshotFalso }), []);
+    assert.deepEqual(planificarRecalculoDeCobros(null, { sheet: FICHA, construirSnapshot: construirSnapshotFalso }), []);
+    assert.deepEqual(planificarRecalculoDeCobros(estadoBase, { sheet: FICHA }), [],
         'sin constructor de snapshot no se inventa una formula propia');
     assert.deepEqual(
-        planificarRecalculoDeCobros({ ...estadoBase, incomeEntries: [] }, { construirSnapshot: construirSnapshotFalso }),
+        planificarRecalculoDeCobros({ ...estadoBase, incomeEntries: [] }, { sheet: FICHA, construirSnapshot: construirSnapshotFalso }),
         []
     );
 });
