@@ -919,7 +919,15 @@ function FinanceProvider({ children }) {
 
             let actualizados = 0;
             let fallidos = 0;
+            let primera = true;
             for (const entry of pendientes) {
+                // Un respiro entre guardados. Probado en LAG Barberia el
+                // 13-09-2026: 119 escrituras seguidas a toda velocidad se
+                // bloquearon en bloque (ERR_BLOCKED_BY_CLIENT) y no se guardo
+                // ni una; una sola peticion pasaba sin problema. Con 120 ms el
+                // peor caso tarda unos 15 s y no parece un ataque.
+                if (!primera) await new Promise((listo) => setTimeout(listo, 120));
+                primera = false;
                 try {
                     const resultado = await saveRomaFinanceIncome(activeBusinessIdRef.current, entry);
                     applyServerVersion(entry, resultado);
