@@ -400,6 +400,66 @@ function planificarRecalculoDeCobros(state, opciones = {}) {
     }, []);
 }
 
+// Cuantos servicios te quedan de un material: los envases que tienes por lo
+// que rinde cada uno. Es el numero que la duena necesita ("me queda para 3
+// citas"), no los envases sueltos.
+function serviciosQueQuedan(material) {
+    const envases = toNumber(material?.stock);
+    if (!(envases > 0)) return 0;
+    return envases * Math.max(toNumber(material?.uses), 1);
+}
+
+// Por debajo de esto se avisa cuando la duena NO puso su propio aviso.
+//
+// De donde sale el 20, medido el 14-09-2026 sobre los 175 materiales con
+// stock real en produccion: con 5 servicios solo avisarian 3 materiales (2%),
+// o sea una alarma muda; con 20 avisan 20 (11%), que es una lista de compra
+// creible. Es una sola constante a proposito: si se queda corta o larga, se
+// cambia aqui y afecta al panel, al asistente y a la pantalla de materiales a
+// la vez, porque los tres llaman a esta misma funcion.
+const SERVICIOS_PARA_AVISAR = 20;
+
+// Materiales por acabarse. Devuelve tambien cuantos servicios quedan para
+// poder decirlo en pantalla en vez de un "stock bajo" que no dice nada.
+//
+// POR QUE NO BASTA CON EL AVISO MANUAL
+// El campo "avisar cuando queden" existe desde siempre, pero medido en
+// produccion solo lo tienen 13 materiales de 586, en 2 salones de 43. Nadie
+// entra a configurarlo producto por producto. Si la duena lo puso, manda el
+// suyo; si no, se deduce del propio material y avisa igual.
+function materialesPorAcabarse(materiales) {
+    return (Array.isArray(materiales) ? materiales : []).reduce((lista, material) => {
+        if (!material || material.deletedAt) return lista;
+
+        const envases = toNumber(material.stock);
+        // Sin stock anotado no se puede afirmar nada: quien no lleva
+        // inventario no tiene que recibir avisos falsos.
+        if (!(envases > 0)) return lista;
+
+        const quedan = serviciosQueQuedan(material);
+        const umbralPropio = material.lowStockThreshold != null && material.lowStockThreshold !== ''
+            ? toNumber(material.lowStockThreshold)
+            : null;
+
+        // El aviso que puso la duena esta en ENVASES, no en servicios: se
+        // compara contra envases para no cambiarle el significado a los 13
+        // materiales que ya lo tienen configurado.
+        const avisa = umbralPropio != null
+            ? envases <= umbralPropio
+            : quedan < SERVICIOS_PARA_AVISAR;
+        if (!avisa) return lista;
+
+        lista.push({
+            id: material.id,
+            name: material.name,
+            envases,
+            serviciosQueQuedan: Math.floor(quedan),
+            avisoPropio: umbralPropio != null
+        });
+        return lista;
+    }, []).sort((a, b) => a.serviciosQueQuedan - b.serviciosQueQuedan);
+}
+
 // Revisa los datos reales del negocio y devuelve solo lo que de verdad
 // distorsiona los calculos o falta para que el diagnostico sea confiable.
 // No repite validateFinanceConfig como issue aparte: si la config esta mal,
@@ -438,6 +498,25 @@ function auditFinanceState(state, referenceDate = new Date()) {
             description: `${zeroCostMaterials.slice(0, 3).map((m) => m.name).join(', ')}${zeroCostMaterials.length > 3 ? '...' : ''}. Con costo en cero, cualquier ficha que los use muestra más ganancia de la real.`,
             view: 'materials',
             actionLabel: 'Revisar materiales'
+        });
+    }
+
+    // Lo unico de esta lista que habla del NEGOCIO y no de "te falta
+    // configurar algo". Va primero a proposito: que se te acabe el material a
+    // mitad de una cita es mas urgente que una ficha sin calcular.
+    const porAcabarse = materialesPorAcabarse(materials);
+    if (porAcabarse.length > 0) {
+        const primeros = porAcabarse.slice(0, 3)
+            .map((m) => `${m.name} (para ${m.serviciosQueQuedan})`)
+            .join(', ');
+        addIssue({
+            id: 'materials_low_stock',
+            title: porAcabarse.length === 1
+                ? 'Se te está acabando un producto'
+                : `Se te están acabando ${porAcabarse.length} productos`,
+            description: `${primeros}${porAcabarse.length > 3 ? '...' : ''}. Reponlos antes de quedarte a mitad de una cita.`,
+            view: 'materials',
+            actionLabel: 'Ver productos'
         });
     }
 
@@ -524,6 +603,9 @@ if (typeof module !== 'undefined' && module.exports) {
         calculateCostSheet,
         isDateInMonth,
         planificarRecalculoDeCobros,
+        serviciosQueQuedan,
+        materialesPorAcabarse,
+        SERVICIOS_PARA_AVISAR,
         auditFinanceState
     };
 }

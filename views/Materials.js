@@ -24,10 +24,12 @@ function Materials({ onBack }) {
             : convertToMainCurrency(material.cost, material.currency, state.config);
         return sum + (unitPurchaseCost * Math.max(toNumber(material.stock), 0));
     }, 0);
-    const lowStockCount = materials.filter((material) => (
-        material.lowStockThreshold != null
-        && toNumber(material.stock) <= toNumber(material.lowStockThreshold)
-    )).length;
+    // Misma regla que el asistente y el panel (utils/finance.js): si la dueña
+    // puso su aviso manda el suyo, y si no se deduce de lo que rinde el
+    // producto. Antes aquí había una copia que solo contaba los que tenían
+    // umbral configurado — 13 de 586 en producción, o sea casi nunca.
+    const porAcabarse = materialesPorAcabarse(materials);
+    const lowStockCount = porAcabarse.length;
 
     const updateField = (field, value) => {
         setForm((current) => ({ ...current, [field]: value }));
@@ -130,7 +132,25 @@ function Materials({ onBack }) {
 
             {lowStockCount > 0 && (
                 <div className="bg-orange-50 border border-orange-100 text-orange-800 rounded-2xl p-4 text-sm">
-                    {lowStockCount === 1 ? 'Un producto está por acabarse.' : `${lowStockCount} productos están por acabarse.`} Revisa lo que tienes antes de tu próxima cita.
+                    <p className="font-semibold">
+                        {lowStockCount === 1 ? 'Un producto está por acabarse.' : `${lowStockCount} productos están por acabarse.`}
+                    </p>
+                    {/* Decir PARA CUÁNTAS CITAS alcanza, no "stock bajo": es el
+                        número con el que la dueña decide si compra hoy o el lunes. */}
+                    <ul className="mt-2 space-y-1">
+                        {porAcabarse.slice(0, 5).map((mat) => (
+                            <li key={mat.id}>
+                                <span className="font-semibold">{mat.name}</span>
+                                {' — '}
+                                {mat.serviciosQueQuedan === 0
+                                    ? 'no te queda para ninguna cita'
+                                    : `te queda para ${mat.serviciosQueQuedan} cita${mat.serviciosQueQuedan === 1 ? '' : 's'}`}
+                            </li>
+                        ))}
+                    </ul>
+                    {porAcabarse.length > 5 && (
+                        <p className="mt-2">Y {porAcabarse.length - 5} más.</p>
+                    )}
                 </div>
             )}
 
