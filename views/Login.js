@@ -1,8 +1,23 @@
 function Login({ onLogin, checkingSession }) {
     const usesEmailLogin = window.ROMA_CONFIG?.backendMode === 'standalone-auth';
     const usesRservasRomaLogin = window.ROMA_CONFIG?.backendMode === 'federated-rservasroma';
-    const [username, setUsername] = React.useState('');
+    // Cuando se entra desde la pestana Finanzas del panel, Roma Finanzas se
+    // sirve desde el MISMO origen que RservasRoma, asi que se puede leer el
+    // slug que el panel ya guardo al iniciar sesion. El usuario de aqui ES el
+    // slug (login_roma_finanzas compara contra lower(negocios.slug)), o sea
+    // que esto le ahorra el campo entero. La contrasena no se guarda en
+    // ninguna parte, y por eso sigue teniendo que escribirla: es la misma del
+    // panel, pero solo la sabe ella.
+    const [username, setUsername] = React.useState(() => {
+        try {
+            return window.localStorage.getItem('adminSlug') || '';
+        } catch (error) {
+            return '';
+        }
+    });
     const [password, setPassword] = React.useState('');
+    const vieneDelPanel = typeof window !== 'undefined'
+        && new URLSearchParams(window.location.search).get('desde') === 'panel';
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState('');
 
@@ -93,6 +108,16 @@ function Login({ onLogin, checkingSession }) {
                         {!loading && !checkingSession && <span className="icon-arrow-right text-sm"></span>}
                     </button>
                 </form>
+
+                {vieneDelPanel && (
+                    <button
+                        type="button"
+                        onClick={() => { window.location.href = '../admin.html'; }}
+                        className="w-full mt-3 py-3 text-sm text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                    >
+                        <span className="icon-arrow-left text-xs"></span> Volver al panel
+                    </button>
+                )}
 
                 <div className="login-notice">
                     <div className="icon-shield-check text-[var(--primary)] mt-0.5 shrink-0"></div>
