@@ -7,6 +7,60 @@ function Config({ onBack }) {
     });
     const [savedMessage, setSavedMessage] = React.useState('');
     const [formError, setFormError] = React.useState('');
+    const [tramos, setTramos] = React.useState(() => getTasasPorFecha(state.config).map((t) => ({ ...t, tasa: String(t.tasa) })));
+    const [tramosMensaje, setTramosMensaje] = React.useState('');
+    const [tramosError, setTramosError] = React.useState('');
+    const [aplicando, setAplicando] = React.useState(false);
+
+    const cambiarTramo = (indice, campo, valor) => {
+        setTramos((actual) => actual.map((t, i) => (i === indice ? { ...t, [campo]: valor } : t)));
+    };
+    const quitarTramo = (indice) => setTramos((actual) => actual.filter((_, i) => i !== indice));
+    const anadirTramo = () => {
+        const hoy = getTodayKey();
+        setTramos((actual) => [...actual, { moneda: 'USD', desde: hoy.slice(0, 8) + '01', hasta: hoy, tasa: '' }]);
+    };
+
+    const guardarTramos = async () => {
+        setTramosError('');
+        setTramosMensaje('');
+        const historial = tramos.map((t) => ({ moneda: t.moneda, desde: t.desde, hasta: t.hasta, tasa: toNumber(t.tasa) }));
+        const errores = validarTasasPorFecha(historial);
+        if (errores.length) {
+            setTramosError(errores[0]);
+            return;
+        }
+        // Una tasa muy lejos de la de hoy casi siempre es un dedo que se fue
+        // ("18" en vez de "718"). Con ella, cada dolar de esos dias valdria 18
+        // CUP y la ganancia del mes se hundiria. Se pregunta, no se prohibe.
+        const rara = historial.find((t) => {
+            const hoy = toNumber(state.config.rates?.[t.moneda]);
+            return hoy > 0 && (t.tasa < hoy / 2 || t.tasa > hoy * 2);
+        });
+        if (rara && !window.confirm(`La tasa de ${rara.moneda} del ${rara.desde} al ${rara.hasta} es ${rara.tasa}, y la de hoy es ${toNumber(state.config.rates?.[rara.moneda])}. ¿Está bien escrita?`)) {
+            return;
+        }
+
+        // Se avisa ANTES de tocar nada de cuantos movimientos cambian.
+        const configNueva = { ...state.config, rates: { ...state.config.rates, historial } };
+        const plan = planificarTasasPorFecha(state, configNueva, getTasasPorFecha(state.config));
+        const cuantos = plan.cobros.length + plan.gastos.length;
+        if (cuantos > 0) {
+            const ok = window.confirm(`Se van a recalcular ${plan.cobros.length} cobro(s) y ${plan.gastos.length} gasto(s) de esas fechas con la nueva tasa. ¿Seguimos?`);
+            if (!ok) return;
+        }
+        setAplicando(true);
+        try {
+            const r = await actions.aplicarTasasPorFecha(historial);
+            setTramosMensaje(cuantos === 0
+                ? 'Tasas guardadas. No había cobros ni gastos en moneda extranjera en esas fechas.'
+                : `Tasas guardadas. Recalculados ${r.actualizados} de ${cuantos} movimientos.${r.fallidos ? ` ${r.fallidos} se guardarán cuando tengas internet.` : ''}`);
+        } catch (error) {
+            setTramosError(error.message || 'No se pudieron guardar las tasas.');
+        } finally {
+            setAplicando(false);
+        }
+    };
 
     const updateRate = (currency, value) => {
         setForm((current) => ({
@@ -25,7 +79,11 @@ function Config({ onBack }) {
             await actions.updateConfig({
                 mainCurrency: form.mainCurrency,
                 desiredMargin: toNumber(form.desiredMargin),
-                rates: Object.fromEntries(Object.entries(form.rates || {}).map(([currency, value]) => [currency, toNumber(value)])),
+                // historial (tasas por fechas) no es una tasa: se guarda aparte, en
+                // su propio boton. Si entrara aqui, toNumber lo convertiria en 0.
+                rates: Object.fromEntries(Object.entries(form.rates || {})
+                    .filter(([currency]) => currency !== 'historial')
+                    .map(([currency, value]) => [currency, toNumber(value)])),
                 ratesUpdatedAt: new Date().toISOString()
             });
             setSavedMessage('Configuración guardada para este negocio.');
@@ -97,6 +155,61 @@ function Config({ onBack }) {
                         </div>
                     </div>
                 ))}
+            </div>
+
+            <h3 className="text-sm font-bold text-gray-500 uppercase mb-3 px-1">¿La tasa cambió durante el mes?</h3>
+            <p className="text-xs text-gray-500 mb-3 px-1">
+                Pon la tasa que hubo entre dos fechas. Los cobros y gastos de esos días se calculan con ella, también los que ya apuntaste. Fuera de esas fechas se usa la tasa de hoy.
+            </p>
+            <div className="card p-4 mb-8 space-y-3">
+                {tramos.length === 0 && (
+                    <p className="text-sm text-gray-500">Todavía no has puesto tasas por fechas.</p>
+                )}
+                {tramos.map((tramo, indice) => (
+                    <div key={indice} className="rounded-2xl border border-gray-100 p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                            <select
+                                className="input-field !py-2 !px-3 w-24"
+                                value={tramo.moneda}
+                                onChange={(event) => cambiarTramo(indice, 'moneda', event.target.value)}
+                                aria-label="Moneda"
+                            >
+                                {['USD', 'MLC', 'EUR'].map((m) => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                            <span className="text-sm text-gray-500">a</span>
+                            <input
+                                type="text"
+                                inputMode="decimal"
+                                className="input-field !py-2 !px-3 text-right font-bold flex-1"
+                                placeholder="690"
+                                value={tramo.tasa}
+                                onChange={(event) => cambiarTramo(indice, 'tasa', event.target.value)}
+                                aria-label="Tasa en CUP"
+                            />
+                            <span className="text-sm text-gray-500">CUP</span>
+                            <button type="button" onClick={() => quitarTramo(indice)} className="text-gray-400 px-2 text-lg" aria-label="Quitar estas fechas">×</button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <label className="text-xs text-gray-500">
+                                Desde
+                                <input type="date" className="input-field !py-2 !px-3 mt-1" value={tramo.desde} onChange={(event) => cambiarTramo(indice, 'desde', event.target.value)} />
+                            </label>
+                            <label className="text-xs text-gray-500">
+                                Hasta
+                                <input type="date" className="input-field !py-2 !px-3 mt-1" value={tramo.hasta} onChange={(event) => cambiarTramo(indice, 'hasta', event.target.value)} />
+                            </label>
+                        </div>
+                    </div>
+                ))}
+                <button type="button" onClick={anadirTramo} className="w-full rounded-xl border border-dashed border-gray-300 py-2 text-sm font-bold text-gray-700">
+                    + Añadir fechas
+                </button>
+                <p className="text-xs text-gray-400">Si dos tramos comparten un día, vale el que empieza más tarde.</p>
+                {tramosMensaje && <div className="bg-green-50 border border-green-100 text-green-700 rounded-xl p-3 text-sm">{tramosMensaje}</div>}
+                {tramosError && <div className="bg-red-50 border border-red-100 text-red-700 rounded-xl p-3 text-sm">{tramosError}</div>}
+                <button type="button" onClick={guardarTramos} disabled={aplicando} className="btn-primary disabled:opacity-60">
+                    {aplicando ? 'Recalculando…' : 'Guardar tasas por fechas'}
+                </button>
             </div>
 
             <div className="card p-5 border-dashed border-2 border-gray-200 bg-transparent">

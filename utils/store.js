@@ -529,7 +529,7 @@ function FinanceProvider({ children }) {
 
         async addExpense(entry) {
             const existingEntry = (stateRef.current.expenseEntries || []).find((row) => String(row.id) === String(entry.id));
-            const money = createMoneySnapshot(entry.amount, entry.currency, stateRef.current.config);
+            const money = createMoneySnapshot(entry.amount, entry.currency, stateRef.current.config, entry.date || getTodayKey());
             const savedEntry = {
                 ...(existingEntry || {}),
                 ...entry,
@@ -883,6 +883,60 @@ function FinanceProvider({ children }) {
         // ya ocurrieron y su material ya se desconto (o nunca se registro):
         // volver a descontarlo dejaria el almacen en negativo. Aqui solo se
         // recalculan los numeros.
+        // Guarda las tasas por fechas y rehace los cobros y gastos ya guardados
+        // en esas fechas, que tenian congelada la tasa del dia en que se
+        // apuntaron. Mismo cuidado que recalcularCobrosDeFicha: de uno en uno,
+        // con un respiro, y el que falle se encola sin cortar a los demas.
+        async aplicarTasasPorFecha(historial) {
+            const current = stateRef.current.config;
+            const anteriores = getTasasPorFecha(current);
+            await actions.updateConfig({
+                rates: { ...current.rates, historial },
+                ratesUpdatedAt: current.ratesUpdatedAt
+            });
+            const config = stateRef.current.config;
+            const { cobros, gastos } = planificarTasasPorFecha(stateRef.current, config, anteriores);
+
+            const cobroPorId = new Map(cobros.map((e) => [String(e.id), e]));
+            const gastoPorId = new Map(gastos.map((e) => [String(e.id), e]));
+            setState((st) => ({
+                ...st,
+                incomeEntries: (st.incomeEntries || []).map((row) => cobroPorId.get(String(row.id)) || row),
+                expenseEntries: (st.expenseEntries || []).map((row) => gastoPorId.get(String(row.id)) || row)
+            }));
+
+            const total = cobros.length + gastos.length;
+            if (!activeBusinessIdRef.current) {
+                cobros.forEach((e) => queueSync({ type: 'income', id: e.id }));
+                gastos.forEach((e) => queueSync({ type: 'expense', id: e.id }));
+                return { cobros: cobros.length, gastos: gastos.length, actualizados: 0, fallidos: total };
+            }
+
+            let actualizados = 0;
+            let fallidos = 0;
+            let primera = true;
+            const trabajos = [
+                ...cobros.map((e) => ({ e, tipo: 'income', guardar: saveRomaFinanceIncome })),
+                ...gastos.map((e) => ({ e, tipo: 'expense', guardar: saveRomaFinanceExpense }))
+            ];
+            for (const { e, tipo, guardar } of trabajos) {
+                if (!primera) await new Promise((listo) => setTimeout(listo, 120));
+                primera = false;
+                try {
+                    const resultado = await guardar(activeBusinessIdRef.current, e);
+                    applyServerVersion(e, resultado);
+                    actualizados += 1;
+                } catch (error) {
+                    console.error('No se pudo aplicar la tasa a un movimiento:', error);
+                    queueSync({ type: tipo, id: e.id }, 'Tasas aplicadas offline. Sincroniza cuando tengas internet.');
+                    fallidos += 1;
+                }
+            }
+
+            setState((st) => ({ ...st, syncStatus: (st.pendingSync || []).length ? 'pending' : 'synced' }));
+            return { cobros: cobros.length, gastos: gastos.length, actualizados, fallidos };
+        },
+
         async recalcularCobrosDeFicha(sheet, desde) {
             const pendientes = planificarRecalculoDeCobros(stateRef.current, {
                 sheet,

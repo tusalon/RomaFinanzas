@@ -83,10 +83,38 @@ function toNumber(value) {
     return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
-function getRateToMainCurrency(currency, config) {
+// TASAS POR FECHAS
+// En Cuba el dolar se mueve de una semana a otra, y una sola tasa "de hoy" no
+// sirve para el mes: un cobro de 20 USD del dia 5 no vale lo mismo en CUP que
+// uno del dia 14. config.rates.historial guarda tramos:
+//     { moneda: 'USD', desde: '2026-09-03', hasta: '2026-09-12', tasa: 690 }
+// Para una fecha manda el tramo que la contiene; si dos se pisan (el dia 12 en
+// "3 al 12" y "12 al 15") manda el que empieza mas tarde, que es el mas nuevo.
+// Fuera de todo tramo, la tasa de siempre (config.rates.USD).
+//
+// Va DENTRO de rates y no en una columna nueva a proposito: el servidor guarda
+// rates entero tal como llega, asi que no hace falta tocar la base ni el RPC.
+function getTasasPorFecha(config) {
+    const historial = config?.rates?.historial;
+    return Array.isArray(historial) ? historial : [];
+}
+
+function getTasaEnFecha(currency, config, fecha = null) {
+    if (currency === 'CUP') return 1;
+    if (fecha) {
+        const dia = String(fecha).slice(0, 10);
+        const tramo = getTasasPorFecha(config)
+            .filter((t) => t.moneda === currency && t.desde <= dia && dia <= t.hasta && toNumber(t.tasa) > 0)
+            .sort((a, b) => String(b.desde).localeCompare(String(a.desde)))[0];
+        if (tramo) return toNumber(tramo.tasa);
+    }
+    return toNumber((config.rates || {})[currency]);
+}
+
+// fecha es opcional: sin ella se usa la tasa de siempre, como antes.
+function getRateToMainCurrency(currency, config, fecha = null) {
     const mainCurrency = config.mainCurrency || 'CUP';
     const sourceCurrency = currency || mainCurrency;
-    const rates = config.rates || {};
 
     if (!SUPPORTED_CURRENCIES.includes(sourceCurrency) || !SUPPORTED_CURRENCIES.includes(mainCurrency)) {
         return null;
@@ -94,18 +122,18 @@ function getRateToMainCurrency(currency, config) {
 
     if (sourceCurrency === mainCurrency) return 1;
 
-    const sourceRateInCup = sourceCurrency === 'CUP' ? 1 : toNumber(rates[sourceCurrency]);
-    const mainRateInCup = mainCurrency === 'CUP' ? 1 : toNumber(rates[mainCurrency]);
+    const sourceRateInCup = getTasaEnFecha(sourceCurrency, config, fecha);
+    const mainRateInCup = getTasaEnFecha(mainCurrency, config, fecha);
 
     if (sourceRateInCup <= 0 || mainRateInCup <= 0) return null;
     return sourceRateInCup / mainRateInCup;
 }
 
-function convertToMainCurrency(amount, currency, config) {
+function convertToMainCurrency(amount, currency, config, fecha = null) {
     const value = toNumber(amount);
     const mainCurrency = config.mainCurrency || 'CUP';
     const sourceCurrency = currency || mainCurrency;
-    const rateToMain = getRateToMainCurrency(sourceCurrency, config);
+    const rateToMain = getRateToMainCurrency(sourceCurrency, config, fecha);
 
     if (rateToMain === null) {
         throw new Error(`Falta una tasa valida para convertir ${sourceCurrency} a ${mainCurrency}.`);
@@ -114,10 +142,10 @@ function convertToMainCurrency(amount, currency, config) {
     return value * rateToMain;
 }
 
-function createMoneySnapshot(amount, currency, config) {
+function createMoneySnapshot(amount, currency, config, fecha = null) {
     const cleanAmount = toNumber(amount);
     const cleanCurrency = currency || config.mainCurrency || 'CUP';
-    const rateToMain = getRateToMainCurrency(cleanCurrency, config);
+    const rateToMain = getRateToMainCurrency(cleanCurrency, config, fecha);
 
     if (rateToMain === null) {
         throw new Error(`Configura la tasa de ${cleanCurrency} antes de guardar.`);
@@ -138,7 +166,7 @@ function getHistoricalAmountMain(entry, config) {
         return savedAmountMain;
     }
 
-    return convertToMainCurrency(entry?.amount, entry?.currency, config);
+    return convertToMainCurrency(entry?.amount, entry?.currency, config, entry?.date);
 }
 
 function getHistoricalTipMain(entry, config) {
@@ -151,11 +179,87 @@ function getHistoricalTipMain(entry, config) {
         return savedTipMain;
     }
 
-    return convertToMainCurrency(tipAmount, entry?.tipCurrency || entry?.currency, config);
+    return convertToMainCurrency(tipAmount, entry?.tipCurrency || entry?.currency, config, entry?.date);
 }
 
 function getIncomeCollectedMain(entry, config) {
     return getHistoricalAmountMain(entry, config) + getHistoricalTipMain(entry, config);
+}
+
+function validarTasasPorFecha(historial = []) {
+    const errores = [];
+    const esFecha = (valor) => /^\d{4}-\d{2}-\d{2}$/.test(String(valor || ''));
+    historial.forEach((tramo, indice) => {
+        const n = indice + 1;
+        if (!SUPPORTED_CURRENCIES.includes(tramo.moneda) || tramo.moneda === 'CUP') {
+            errores.push(`Tasa por fechas ${n}: elige USD, MLC o EUR.`);
+        } else if (!esFecha(tramo.desde) || !esFecha(tramo.hasta)) {
+            errores.push(`Tasa por fechas ${n}: pon las dos fechas.`);
+        } else if (tramo.desde > tramo.hasta) {
+            errores.push(`Tasa por fechas ${n}: la fecha "desde" va antes que "hasta".`);
+        } else if (toNumber(tramo.tasa) <= 0) {
+            errores.push(`Tasa por fechas ${n}: la tasa tiene que ser mayor que cero.`);
+        }
+    });
+    return errores;
+}
+
+// Un cobro o gasto guardado congela su tasa. Cuando la duena pone una tasa
+// para unas fechas, los que ya estaban guardados en esas fechas hay que
+// rehacerlos. Solo se tocan los importes que dependen de la tasa: el costo
+// del servicio (unitCostMain) se queda como estaba.
+function recalcularDineroDeCobro(entry, config) {
+    const fecha = entry.date;
+    const rateToMain = getRateToMainCurrency(entry.currency || config.mainCurrency, config, fecha);
+    const tipRateToMain = getRateToMainCurrency(entry.tipCurrency || entry.currency || config.mainCurrency, config, fecha);
+    if (rateToMain === null || tipRateToMain === null) return entry;
+    const amountMain = toNumber(entry.amount) * rateToMain;
+    const unitCostMain = toNumber(entry.unitCostMain);
+    const profitMain = amountMain - unitCostMain;
+    return {
+        ...entry,
+        rateToMain,
+        amountMain,
+        tipRateToMain,
+        tipAmountMain: Math.max(toNumber(entry.tipAmount), 0) * tipRateToMain,
+        profitMain,
+        margin: amountMain > 0 ? (profitMain / amountMain) * 100 : 0
+    };
+}
+
+function recalcularDineroDeGasto(entry, config) {
+    const rateToMain = getRateToMainCurrency(entry.currency || config.mainCurrency, config, entry.date);
+    if (rateToMain === null) return entry;
+    return { ...entry, rateToMain, amountMain: toNumber(entry.amount) * rateToMain };
+}
+
+// Que cobros y gastos cambian si se aplican estos tramos. Solo los que caen
+// dentro de un tramo, en una moneda que no es la principal, y cuyo importe
+// cambia de verdad (no se reescribe lo que ya esta bien).
+// tramosAnteriores: los que habia antes de guardar. Sus fechas tambien se
+// revisan: si la duena quita un tramo equivocado, esos cobros tienen que
+// volver a la tasa de hoy, no quedarse con la mala para siempre.
+function planificarTasasPorFecha(state, config, tramosAnteriores = []) {
+    const tramos = [...getTasasPorFecha(config), ...(tramosAnteriores || [])];
+    const mainCurrency = config.mainCurrency || 'CUP';
+    const enAlgunTramo = (fecha) => tramos.some((t) => t.desde <= String(fecha || '').slice(0, 10) && String(fecha || '').slice(0, 10) <= t.hasta);
+    const distinto = (a, b) => Math.abs(toNumber(a) - toNumber(b)) > 0.005;
+
+    const cobros = (state.incomeEntries || [])
+        .filter((e) => enAlgunTramo(e.date))
+        .filter((e) => (e.currency || mainCurrency) !== mainCurrency
+            || (toNumber(e.tipAmount) > 0 && (e.tipCurrency || e.currency || mainCurrency) !== mainCurrency))
+        .map((e) => ({ antes: e, despues: recalcularDineroDeCobro(e, config) }))
+        .filter(({ antes, despues }) => distinto(antes.amountMain, despues.amountMain) || distinto(antes.tipAmountMain, despues.tipAmountMain))
+        .map(({ despues }) => despues);
+
+    const gastos = (state.expenseEntries || [])
+        .filter((e) => enAlgunTramo(e.date) && (e.currency || mainCurrency) !== mainCurrency)
+        .map((e) => ({ antes: e, despues: recalcularDineroDeGasto(e, config) }))
+        .filter(({ antes, despues }) => distinto(antes.amountMain, despues.amountMain))
+        .map(({ despues }) => despues);
+
+    return { cobros, gastos };
 }
 
 function validateFinanceConfig(config) {
@@ -177,6 +281,8 @@ function validateFinanceConfig(config) {
     if (desiredMargin <= 0 || desiredMargin >= 100) {
         errors.push('El margen deseado debe estar entre 1% y 99%.');
     }
+
+    errors.push(...validarTasasPorFecha(getTasasPorFecha(config)));
 
     return errors;
 }
@@ -585,6 +691,12 @@ if (typeof module !== 'undefined' && module.exports) {
         normalizeFinanceText,
         toNumber,
         getRateToMainCurrency,
+        getTasaEnFecha,
+        getTasasPorFecha,
+        validarTasasPorFecha,
+        recalcularDineroDeCobro,
+        recalcularDineroDeGasto,
+        planificarTasasPorFecha,
         convertToMainCurrency,
         createMoneySnapshot,
         getHistoricalAmountMain,

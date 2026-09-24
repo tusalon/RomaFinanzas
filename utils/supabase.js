@@ -897,11 +897,13 @@ function getApplicableCostSheet(serviceId, date, costSheets = []) {
 }
 
 function buildIncomeFinancialSnapshot(entry, costSheets, config) {
-    const money = createMoneySnapshot(entry.amount, entry.currency, config);
+    // Con la fecha del cobro: si hay una tasa puesta para esos dias, esa.
+    const money = createMoneySnapshot(entry.amount, entry.currency, config, entry.date);
     const tipMoney = createMoneySnapshot(
         Math.max(toNumber(entry.tipAmount), 0),
         entry.tipCurrency || entry.currency,
-        config
+        config,
+        entry.date
     );
     const sheet = getApplicableCostSheet(entry.serviceId, entry.date, costSheets);
     const unitCostMain = sheet ? toNumber(sheet.totals?.totalCostMain) : 0;
