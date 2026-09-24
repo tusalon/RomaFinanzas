@@ -704,19 +704,58 @@ function mapFinanceIncomeFromDb(row) {
 // normalizeFinanceText ahora vive en utils/finance.js (utilidad pura, sin
 // dependencias de Supabase) para que tests/audit puedan requerirla en Node.
 
-function mapBookingToFinanceIncome(row, services = [], config = {}) {
-    const serviceName = String(row.servicio || '').trim();
-    const matchedService = (services || []).find((service) => normalizeFinanceText(service.name) === normalizeFinanceText(serviceName));
-    const bookingAmount = toNumber(row.monto_cobrado) || toNumber(row.precio_final) || toNumber(row.precio_original);
-    const currency = matchedService?.currency || config.mainCurrency || 'CUP';
-    const amount = bookingAmount > 0 ? bookingAmount : toNumber(matchedService?.price);
+// UNA RESERVA PUEDE TRAER VARIOS SERVICIOS EN UNA SOLA FILA: "Base Rubber +
+// Pedicura". Antes se buscaba un servicio con ese nombre entero, no existia, y
+// el cobro quedaba sin servicio: sin ficha de costo, con costo cero, y la
+// ganancia salia inflada. Medido el 24-09-2026: 563 reservas completadas asi en
+// 53 salones, y siguen entrando (la ultima, ese mismo dia).
+//
+// Ahora sale UN COBRO POR SERVICIO. El importe se reparte en proporcion al
+// precio de cada servicio, que es como RservasRoma ya reparte las reservas
+// multiples que guarda en filas separadas (1666.67 + 833.33 de 2500). Si los
+// servicios estan en monedas distintas, o no se conoce el precio de alguno,
+// se reparte a partes iguales. La ultima parte se lleva el resto del redondeo
+// para que la suma de siempre el total exacto.
+//
+// La primera parte conserva el id de siempre (reserva_<id>); las siguientes
+// son reserva_<id>__2, __3... Asi el cobro viejo, guardado entero, se
+// sustituye por la primera parte sin tener que borrar nada.
+function mapBookingToFinanceIncomes(row, services = [], config = {}) {
+    const buscar = (nombre) => (services || []).find((service) => normalizeFinanceText(service.name) === normalizeFinanceText(nombre)) || null;
+    const nombreEntero = String(row.servicio || '').trim();
+    // Primero el nombre entero: un salon puede tener un servicio que se llame
+    // de verdad "Manicura + Pedicura", y ese no se parte.
+    const nombres = buscar(nombreEntero)
+        ? [nombreEntero]
+        : nombreEntero.split(' + ').map((nombre) => nombre.trim()).filter(Boolean);
+    const partes = (nombres.length ? nombres : [nombreEntero]).map((nombre) => ({
+        nombre,
+        servicio: buscar(nombre)
+    }));
 
-    return {
-        id: `reserva_${row.id}`,
+    const monedas = [...new Set(partes.map((parte) => parte.servicio?.currency).filter(Boolean))];
+    const currency = monedas.length === 1 ? monedas[0] : (config.mainCurrency || 'CUP');
+    const bookingAmount = toNumber(row.monto_cobrado) || toNumber(row.precio_final) || toNumber(row.precio_original);
+
+    let importes;
+    if (bookingAmount > 0) {
+        const precios = partes.map((parte) => toNumber(parte.servicio?.price));
+        const proporcional = monedas.length <= 1 && precios.every((precio) => precio > 0);
+        const pesos = proporcional ? precios : partes.map(() => 1);
+        const totalPesos = pesos.reduce((suma, peso) => suma + peso, 0);
+        importes = pesos.map((peso) => Math.round((bookingAmount * peso / totalPesos) * 100) / 100);
+        const repartido = importes.slice(0, -1).reduce((suma, importe) => suma + importe, 0);
+        importes[importes.length - 1] = Math.round((bookingAmount - repartido) * 100) / 100;
+    } else {
+        importes = partes.map((parte) => toNumber(parte.servicio?.price));
+    }
+
+    return partes.map((parte, indice) => ({
+        id: indice === 0 ? `reserva_${row.id}` : `reserva_${row.id}__${indice + 1}`,
         date: row.fecha || getTodayKey(),
-        serviceId: matchedService?.id || '',
+        serviceId: parte.servicio?.id || '',
         client: row.cliente_nombre || '',
-        amount,
+        amount: importes[indice],
         currency,
         rateToMain: 0,
         amountMain: 0,
@@ -728,10 +767,70 @@ function mapBookingToFinanceIncome(row, services = [], config = {}) {
         profitMain: 0,
         margin: 0,
         paymentMethod: row.monto_cobrado ? 'Cobro real' : 'Reserva completada',
-        note: `Cita ${row.estado || ''}`.trim(),
+        note: partes.length > 1
+            ? `Cita ${row.estado || ''} · ${parte.nombre} (${indice + 1} de ${partes.length})`.trim()
+            : `Cita ${row.estado || ''}`.trim(),
         source: 'reserva',
         bookingId: String(row.id)
-    };
+    }));
+}
+
+// Que cobros de reserva hay que ensenar y guardar, frente a los ya guardados.
+//
+// - Reserva de un servicio: igual que siempre. Si ya esta guardada, manda la
+//   guardada (puede tener propina o un importe corregido a mano).
+// - Reserva de varios servicios ya guardada ENTERA (el formato viejo, sin
+//   servicio): se sustituye por sus partes, pero SOLO si nadie la ha tocado:
+//   sin servicio y sin propina. Si tiene un servicio o una propina puesta,
+//   se respeta tal cual y no se reparte.
+// - Partes que ya estan guardadas: manda la guardada. Las que falten (un
+//   guardado que se corto a medias) se completan.
+//
+// Devuelve las partes que hay que ensenar y guardar. Pisan a lo guardado con
+// el mismo id: la primera parte sustituye al cobro viejo entero.
+function reconciliarCobrosDeReservas(partesDeReservas = [], guardados = []) {
+    const guardadoPorId = new Map(guardados.map((entry) => [String(entry.id), entry]));
+    const reservasGuardadas = new Set(guardados.map((entry) => String(entry.bookingId || '')).filter(Boolean));
+    const porReserva = new Map();
+    partesDeReservas.forEach((parte) => {
+        const clave = String(parte.bookingId || parte.id);
+        if (!porReserva.has(clave)) porReserva.set(clave, []);
+        porReserva.get(clave).push(parte);
+    });
+
+    const nuevas = [];
+    porReserva.forEach((partes, bookingId) => {
+        if (partes.length === 1) {
+            if (!reservasGuardadas.has(bookingId)) nuevas.push(partes[0]);
+            return;
+        }
+
+        // El cobro viejo entero se reconoce por su nota, que la escribe el
+        // codigo: las partes nuevas llevan "(1 de 2)" y el viejo no. No se mira
+        // el importe: si la reserva cambio de importe despues, el viejo seguiria
+        // ahi y se contaria dos veces (entero + las demas partes).
+        const viejo = guardadoPorId.get(`reserva_${bookingId}`);
+        const esViejoEntero = Boolean(viejo) && !/\(1 de \d+\)/.test(String(viejo.note || ''));
+        const intacto = esViejoEntero && !viejo.serviceId && toNumber(viejo.tipAmount) === 0;
+
+        if (esViejoEntero && !intacto) return;
+
+        // Sustituir al viejo exige que la primera parte (que lleva su mismo id)
+        // exista. Si se descarto por importe cero, el viejo no se podria pisar
+        // y se sumaria a las demas partes: mejor dejarlo como estaba.
+        const idViejo = `reserva_${bookingId}`;
+        if (intacto && !partes.some((parte) => String(parte.id) === idViejo)) return;
+
+        partes.forEach((parte) => {
+            if (intacto && String(parte.id) === idViejo) {
+                nuevas.push({ ...parte, version: viejo.version });
+                return;
+            }
+            if (!guardadoPorId.has(String(parte.id))) nuevas.push(parte);
+        });
+    });
+
+    return nuevas;
 }
 
 function mapFinanceExpenseFromDb(row) {
@@ -1022,7 +1121,7 @@ async function loadRomaFinanceData(business) {
     if (bookingIncomeResponse.error) throw bookingIncomeResponse.error;
 
     const bookingIncomeEntries = (bookingIncomeResponse.data || [])
-        .map((booking) => mapBookingToFinanceIncome(booking, financeServices, config))
+        .flatMap((booking) => mapBookingToFinanceIncomes(booking, financeServices, config))
         .filter((entry) => entry.amount > 0)
         .map((entry) => {
             try {
@@ -1032,8 +1131,7 @@ async function loadRomaFinanceData(business) {
             }
         });
     const manualIncomeEntries = (incomeResponse.data || []).map(mapFinanceIncomeFromDb);
-    const persistedBookingIds = new Set(manualIncomeEntries.map((entry) => String(entry.bookingId || '')).filter(Boolean));
-    const newBookingEntries = bookingIncomeEntries.filter((entry) => !persistedBookingIds.has(String(entry.bookingId || '')));
+    const newBookingEntries = reconciliarCobrosDeReservas(bookingIncomeEntries, manualIncomeEntries);
 
     if (token && navigator.onLine !== false && validateFinanceConfig(config).length === 0) {
         // No se espera aqui: guardar cada cita es un viaje de red aparte, y un
@@ -1053,8 +1151,10 @@ async function loadRomaFinanceData(business) {
         })();
     }
 
+    // Lo guardado primero; encima, los cobros de reserva nuevos o que sustituyen
+    // a uno viejo entero (ver reconciliarCobrosDeReservas).
     const incomeById = new Map();
-    [...bookingIncomeEntries, ...manualIncomeEntries].forEach((entry) => {
+    [...manualIncomeEntries, ...newBookingEntries].forEach((entry) => {
         incomeById.set(String(entry.id), entry);
     });
 
