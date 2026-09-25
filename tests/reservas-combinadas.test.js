@@ -162,3 +162,38 @@ test('reservas de un servicio ya guardadas: manda lo guardado, como siempre', ()
     const guardado = { ...partes[0], tipAmount: 100, version: 2 };
     assert.equal(reconciliarCobrosDeReservas(partes, [guardado]).length, 0);
 });
+
+// ---------------- Moneda del cobro real (25-09-2026) ----------------
+
+test('un cobro real apuntado en USD llega en USD aunque el servicio sea en CUP', () => {
+    const { mapBookingToFinanceIncomes } = cargar();
+    const partes = mapBookingToFinanceIncomes(
+        { id: 50, servicio: 'Pedicura', monto_cobrado: 10, moneda_cobrada: 'USD' },
+        SERVICIOS, CONFIG
+    );
+    assert.equal(partes[0].currency, 'USD');
+    assert.equal(partes[0].amount, 10);
+    assert.equal(partes[0].serviceId, 'srv_pedi', 'sigue siendo el mismo servicio');
+});
+
+test('en una combinada cobrada en USD, todas las partes van en USD y suman el total', () => {
+    const { mapBookingToFinanceIncomes } = cargar();
+    const partes = mapBookingToFinanceIncomes(
+        { id: 51, servicio: 'Base Rubber + Pedicura', monto_cobrado: 15, moneda_cobrada: 'USD' },
+        SERVICIOS, CONFIG
+    );
+    assert.ok(partes.every((p) => p.currency === 'USD'));
+    assert.equal(suma(partes), 15);
+});
+
+test('sin moneda apuntada, la del servicio, como siempre', () => {
+    const { mapBookingToFinanceIncomes } = cargar();
+    const partes = mapBookingToFinanceIncomes({ id: 52, servicio: 'Pedicura', monto_cobrado: 500 }, SERVICIOS, CONFIG);
+    assert.equal(partes[0].currency, 'CUP');
+});
+
+test('una moneda que Finanzas no maneja (MXN) no se inventa: la del servicio', () => {
+    const { mapBookingToFinanceIncomes } = cargar();
+    const partes = mapBookingToFinanceIncomes({ id: 53, servicio: 'Pedicura', monto_cobrado: 500, moneda_cobrada: 'MXN' }, SERVICIOS, CONFIG);
+    assert.equal(partes[0].currency, 'CUP');
+});

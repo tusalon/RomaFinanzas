@@ -738,7 +738,14 @@ function mapBookingToFinanceIncomes(row, services = [], config = {}) {
     }));
 
     const monedas = [...new Set(partes.map((parte) => parte.servicio?.currency).filter(Boolean))];
-    const currency = monedas.length === 1 ? monedas[0] : (config.mainCurrency || 'CUP');
+    // Si la duena apunto en que moneda cobro (reservas.moneda_cobrada, desde el
+    // 25-09-2026), manda esa: un servicio con precio en CUP se puede cobrar en
+    // USD. Sin ella, la del servicio, como siempre.
+    const monedaCobrada = toNumber(row.monto_cobrado) > 0
+        && ['CUP', 'USD', 'MLC', 'EUR'].includes(String(row.moneda_cobrada || '').toUpperCase())
+        ? String(row.moneda_cobrada).toUpperCase()
+        : '';
+    const currency = monedaCobrada || (monedas.length === 1 ? monedas[0] : (config.mainCurrency || 'CUP'));
     const bookingAmount = toNumber(row.monto_cobrado) || toNumber(row.precio_final) || toNumber(row.precio_original);
 
     let importes;
@@ -835,6 +842,21 @@ function reconciliarCobrosDeReservas(partesDeReservas = [], guardados = []) {
     });
 
     return nuevas;
+}
+
+async function cargarMonedasCobroReal(negocioId) {
+    try {
+        const { data, error } = await romaSupabase
+            .from('reservas')
+            .select('id,moneda_cobrada')
+            .eq('negocio_id', negocioId)
+            .not('moneda_cobrada', 'is', null)
+            .limit(5000);
+        if (error || !Array.isArray(data)) return new Map();
+        return new Map(data.map((row) => [String(row.id), row.moneda_cobrada]));
+    } catch (error) {
+        return new Map();
+    }
 }
 
 function mapFinanceExpenseFromDb(row) {
@@ -1125,6 +1147,20 @@ async function loadRomaFinanceData(business) {
             .limit(2000);
 
     if (bookingIncomeResponse.error) throw bookingIncomeResponse.error;
+
+    // load_roma_finanzas devuelve las reservas con una lista FIJA de columnas y
+    // moneda_cobrada no esta. En vez de reescribir esa funcion del servidor, se
+    // pide aparte solo la moneda de las citas que la tienen: una consulta
+    // pequena. Si la columna aun no existe, falla en silencio y todo sigue
+    // como antes (moneda del servicio).
+    const monedaCobradaPorReserva = await cargarMonedasCobroReal(business.id);
+    if (monedaCobradaPorReserva.size > 0) {
+        bookingIncomeResponse.data = (bookingIncomeResponse.data || []).map((row) => (
+            row.moneda_cobrada || !monedaCobradaPorReserva.has(String(row.id))
+                ? row
+                : { ...row, moneda_cobrada: monedaCobradaPorReserva.get(String(row.id)) }
+        ));
+    }
 
     const bookingIncomeEntries = (bookingIncomeResponse.data || [])
         .flatMap((booking) => mapBookingToFinanceIncomes(booking, financeServices, config))
