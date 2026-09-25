@@ -1,6 +1,6 @@
 {
   "name": "roma-finanzas",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "PWA y APK Android para Roma Finanzas",
   "main": "app.js",
   "scripts": {

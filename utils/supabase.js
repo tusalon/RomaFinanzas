@@ -496,7 +496,11 @@ function esSesionRechazada(error) {
 const ROMA_MOTIVOS_SESION_MUERTA = ['sesion_invalida', 'sesion_vencida', 'sin_acceso'];
 
 // Lo que ve la duena. "Sesion invalida" no le dice nada; "vuelve a entrar" si.
-function mensajeDeMotivo(motivo) {
+function mensajeDeMotivo(motivo, fila = null) {
+    // Desde blindaje-03 un error al guardar llega como respuesta normal, con el
+    // texto del servidor, en vez de abortar la transaccion. No es la sesion:
+    // decirle "tu sesion vencio" la haria salir y entrar para nada.
+    if (motivo === 'error_operacion') return (fila && fila.mensaje) || 'No se pudo guardar. Inténtalo otra vez.';
     if (motivo === 'sin_acceso') return 'Tu negocio no tiene Roma Finanzas activo. Escríbenos para activarlo.';
     if (motivo === 'demasiadas_llamadas') return 'La app está haciendo demasiadas peticiones. Espera un minuto y vuelve a intentarlo.';
     return 'Tu sesión venció. Entra de nuevo.';
@@ -586,7 +590,7 @@ async function applyRomaFinanceChange(operation, payload) {
     if (motivo) {
         if (ROMA_MOTIVOS_SESION_MUERTA.includes(motivo)) marcarSesionFinanzasRechazada();
         else registrarFalloFinanzas({ message: motivo });
-        throw new Error(mensajeDeMotivo(motivo));
+        throw new Error(mensajeDeMotivo(motivo, Array.isArray(data) ? data[0] : data));
     }
 
     registrarExitoFinanzas();
