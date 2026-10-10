@@ -197,3 +197,37 @@ test('una moneda que Finanzas no maneja (MXN) no se inventa: la del servicio', (
     const partes = mapBookingToFinanceIncomes({ id: 53, servicio: 'Pedicura', monto_cobrado: 500, moneda_cobrada: 'MXN' }, SERVICIOS, CONFIG);
     assert.equal(partes[0].currency, 'CUP');
 });
+
+// Ritis Salón & Spa, 07-10-2026: el cobro se guardó como 3024.19 USD (eran pesos) y
+// después se corrigió en RservasRoma, pero Finanzas se quedó con el primer importe.
+test('un cobro editado en RservasRoma después de guardarse actualiza su ingreso', () => {
+    const { mapBookingToFinanceIncomes, reconciliarCobrosDeReservas } = cargar();
+    const [parte] = mapBookingToFinanceIncomes({ id: 90, servicio: 'Pedicura', monto_cobrado: 500, moneda_cobrada: 'CUP' }, SERVICIOS, CONFIG);
+    const guardado = { ...parte, amount: 500, currency: 'USD', tipAmount: 0, version: 3, updatedAt: '2026-10-08T02:09:25Z' };
+
+    const sinFecha = reconciliarCobrosDeReservas([parte], [guardado]);
+    assert.equal(sinFecha.length, 0, 'sin fecha de cobro no se toca nada');
+
+    const editado = reconciliarCobrosDeReservas([parte], [guardado], new Map([['90', '2026-10-08T02:11:58Z']]));
+    assert.equal(editado.length, 1);
+    assert.equal(editado[0].currency, 'CUP');
+    assert.equal(editado[0].version, 3, 'pisa al guardado con su misma versión');
+});
+
+test('una corrección hecha a mano en Finanzas, más reciente que el cobro, se respeta', () => {
+    const { mapBookingToFinanceIncomes, reconciliarCobrosDeReservas } = cargar();
+    const [parte] = mapBookingToFinanceIncomes({ id: 91, servicio: 'Pedicura', monto_cobrado: 500, moneda_cobrada: 'CUP' }, SERVICIOS, CONFIG);
+    const corregido = { ...parte, amount: 480, tipAmount: 0, version: 2, updatedAt: '2026-10-09T10:00:00Z' };
+    const nuevas = reconciliarCobrosDeReservas([parte], [corregido], new Map([['91', '2026-10-08T02:11:58Z']]));
+    assert.equal(nuevas.length, 0);
+});
+
+test('un ingreso con propina o sin cambios no se vuelve a escribir', () => {
+    const { mapBookingToFinanceIncomes, reconciliarCobrosDeReservas } = cargar();
+    const [parte] = mapBookingToFinanceIncomes({ id: 92, servicio: 'Pedicura', monto_cobrado: 500, moneda_cobrada: 'CUP' }, SERVICIOS, CONFIG);
+    const cobro = new Map([['92', '2026-10-08T02:11:58Z']]);
+    const igualAlCobro = { ...parte, tipAmount: 0, version: 1, updatedAt: '2026-10-07T00:00:00Z' };
+    assert.equal(reconciliarCobrosDeReservas([parte], [igualAlCobro], cobro).length, 0, 'mismo importe y moneda');
+    const conPropina = { ...parte, amount: 100, tipAmount: 50, version: 1, updatedAt: '2026-10-07T00:00:00Z' };
+    assert.equal(reconciliarCobrosDeReservas([parte], [conPropina], cobro).length, 0, 'con propina no se pisa');
+});

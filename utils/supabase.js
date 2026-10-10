@@ -799,7 +799,14 @@ function mapBookingToFinanceIncomes(row, services = [], config = {}) {
 //
 // Devuelve las partes que hay que ensenar y guardar. Pisan a lo guardado con
 // el mismo id: la primera parte sustituye al cobro viejo entero.
-function reconciliarCobrosDeReservas(partesDeReservas = [], guardados = []) {
+//
+// Cobro editado despues de guardarse (Ritis Salon, 07-10-2026): una reserva de
+// UN servicio ya guardada se actualiza si la duena cambio el cobro en
+// RservasRoma (importe o moneda) DESPUES de la ultima vez que se toco el
+// ingreso aqui. Si alguien lo corrigio a mano en Finanzas, esa correccion es
+// mas reciente que el cobro y se respeta. `cobrosEditados` es un mapa
+// reserva -> fecha en que se registro el cobro.
+function reconciliarCobrosDeReservas(partesDeReservas = [], guardados = [], cobrosEditados = new Map()) {
     const guardadoPorId = new Map(guardados.map((entry) => [String(entry.id), entry]));
     const reservasGuardadas = new Set(guardados.map((entry) => String(entry.bookingId || '')).filter(Boolean));
     const porReserva = new Map();
@@ -812,7 +819,20 @@ function reconciliarCobrosDeReservas(partesDeReservas = [], guardados = []) {
     const nuevas = [];
     porReserva.forEach((partes, bookingId) => {
         if (partes.length === 1) {
-            if (!reservasGuardadas.has(bookingId)) nuevas.push(partes[0]);
+            if (!reservasGuardadas.has(bookingId)) {
+                nuevas.push(partes[0]);
+                return;
+            }
+            const guardado = guardadoPorId.get(String(partes[0].id));
+            const cobroEn = Date.parse(cobrosEditados.get(bookingId) || '');
+            const tocadoEn = Date.parse(guardado?.updatedAt || '');
+            const cambio = guardado
+                && (Math.abs(toNumber(guardado.amount) - toNumber(partes[0].amount)) > 0.005
+                    || String(guardado.currency) !== String(partes[0].currency));
+            if (guardado && guardado.source === 'reserva' && toNumber(guardado.tipAmount) === 0
+                && cambio && Number.isFinite(cobroEn) && Number.isFinite(tocadoEn) && cobroEn > tocadoEn) {
+                nuevas.push({ ...partes[0], version: guardado.version });
+            }
             return;
         }
 
@@ -842,6 +862,23 @@ function reconciliarCobrosDeReservas(partesDeReservas = [], guardados = []) {
     });
 
     return nuevas;
+}
+
+// Cuando se registro el cobro de cada cita (reservas.cobro_registrado_at). Si
+// la columna no existe, falla en silencio: sin fechas no se actualiza nada.
+async function cargarFechasCobroReal(negocioId) {
+    try {
+        const { data, error } = await romaSupabase
+            .from('reservas')
+            .select('id,cobro_registrado_at')
+            .eq('negocio_id', negocioId)
+            .not('cobro_registrado_at', 'is', null)
+            .limit(5000);
+        if (error || !Array.isArray(data)) return new Map();
+        return new Map(data.map((row) => [String(row.id), row.cobro_registrado_at]));
+    } catch (error) {
+        return new Map();
+    }
 }
 
 async function cargarMonedasCobroReal(negocioId) {
@@ -1173,7 +1210,8 @@ async function loadRomaFinanceData(business) {
             }
         });
     const manualIncomeEntries = (incomeResponse.data || []).map(mapFinanceIncomeFromDb);
-    const newBookingEntries = reconciliarCobrosDeReservas(bookingIncomeEntries, manualIncomeEntries);
+    const fechasCobroReal = await cargarFechasCobroReal(business.id);
+    const newBookingEntries = reconciliarCobrosDeReservas(bookingIncomeEntries, manualIncomeEntries, fechasCobroReal);
 
     if (token && navigator.onLine !== false && validateFinanceConfig(config).length === 0) {
         // No se espera aqui: guardar cada cita es un viaje de red aparte, y un
