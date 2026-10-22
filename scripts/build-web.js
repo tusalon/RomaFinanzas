@@ -33,6 +33,7 @@ const sourceOrder = [
     'views/Materials.js',
     'views/CostSheet.js',
     'views/Reports.js',
+    'views/History.js',
     'views/Config.js',
     'app.js'
 ];

@@ -680,6 +680,79 @@ function auditFinanceState(state, referenceDate = new Date()) {
     return issues;
 }
 
+// HISTORIAL DE COBROS ------------------------------------------------------------------------------------
+// Todos los cobros del negocio en una lista: los que llegan solos de las citas de RservasRoma
+// (source 'reserva') y los que la duena anota a mano. Pura (sin pantalla) para poder probarla.
+// Filtros: month = 'todo' o 'AAAA-MM'; origin = 'todos' | 'agenda' | 'manual'; query = texto libre.
+// ponytail: la app carga los cobros de una vez (PostgREST corta en 1000 filas). El salon con mas tiene 462;
+// si alguno se acerca a 1000 hay que paginar la carga en utils/supabase.js.
+function getCobroOrigin(entry) {
+    return entry && entry.source === 'reserva' ? 'agenda' : 'manual';
+}
+
+function buildCobrosHistory(entries, services, config, filters = {}) {
+    const month = filters.month || 'todo';
+    const origin = filters.origin || 'todos';
+    const query = normalizeFinanceText(filters.query);
+    const serviceName = new Map((services || []).map((service) => [String(service.id), service.name]));
+
+    const all = (entries || []).filter((entry) => entry && entry.id);
+    const months = [...new Set(all.map((entry) => String(entry.date || '').slice(0, 7)).filter((m) => /^\d{4}-\d{2}$/.test(m)))]
+        .sort()
+        .reverse();
+
+    const rows = all
+        .filter((entry) => month === 'todo' || String(entry.date || '').slice(0, 7) === month)
+        .filter((entry) => origin === 'todos' || getCobroOrigin(entry) === origin)
+        .map((entry) => ({
+            id: entry.id,
+            date: entry.date || '',
+            client: entry.client || '',
+            serviceName: serviceName.get(String(entry.serviceId)) || 'Sin servicio',
+            paymentMethod: entry.paymentMethod || '',
+            note: entry.note || '',
+            amount: toNumber(entry.amount),
+            currency: entry.currency || (config && config.mainCurrency) || 'CUP',
+            tipAmount: toNumber(entry.tipAmount),
+            tipCurrency: entry.tipCurrency || entry.currency || (config && config.mainCurrency) || 'CUP',
+            amountMain: getHistoricalAmountMain(entry, config),
+            tipMain: getHistoricalTipMain(entry, config),
+            origin: getCobroOrigin(entry),
+            missingCost: !entry.costSheetId
+        }))
+        .filter((row) => !query || normalizeFinanceText(`${row.client} ${row.serviceName} ${row.paymentMethod} ${row.note}`).includes(query))
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.id).localeCompare(String(a.id)));
+
+    const serviceMain = rows.reduce((sum, row) => sum + row.amountMain, 0);
+    const tipMain = rows.reduce((sum, row) => sum + row.tipMain, 0);
+
+    return {
+        rows,
+        months,
+        totals: { count: rows.length, serviceMain, tipMain, totalMain: serviceMain + tipMain }
+    };
+}
+
+// CSV con UNA LINEA POR COBRO (el reporte del mes solo baja el resumen). BOM para que Excel respete los acentos.
+function buildCobrosCsv(rows, mainCurrency) {
+    const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const header = ['Fecha', 'Clienta', 'Servicio', 'Cobrado', 'Moneda', 'Propina', 'Moneda propina', `Total en ${mainCurrency}`, 'Forma de pago', 'Origen', 'Nota'];
+    const lines = (rows || []).map((row) => [
+        row.date,
+        row.client,
+        row.serviceName,
+        row.amount.toFixed(2),
+        row.currency,
+        row.tipAmount > 0 ? row.tipAmount.toFixed(2) : '',
+        row.tipAmount > 0 ? row.tipCurrency : '',
+        (row.amountMain + row.tipMain).toFixed(2),
+        row.paymentMethod,
+        row.origin === 'agenda' ? 'Agenda' : 'Anotado a mano',
+        row.note
+    ]);
+    return `﻿${[header, ...lines].map((line) => line.map(escape).join(',')).join('\r\n')}`;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         SUPPORTED_CURRENCIES,
@@ -702,6 +775,9 @@ if (typeof module !== 'undefined' && module.exports) {
         getHistoricalAmountMain,
         getHistoricalTipMain,
         getIncomeCollectedMain,
+        getCobroOrigin,
+        buildCobrosHistory,
+        buildCobrosCsv,
         validateFinanceConfig,
         formatMoney,
         getExpenseTypeMeta,

@@ -8,10 +8,11 @@ function TopBar({ view, onBack, onLogout, authUser, syncStatus, pendingCount, la
         materials: 'Productos que usas',
         costSheet: 'Calcula cuánto te queda',
         reports: 'Cómo va tu negocio',
+        history: 'Historial de cobros',
         config: 'Monedas y meta'
     };
 
-    const isSubView = ['services', 'materials', 'costSheet', 'reports', 'config'].includes(view);
+    const isSubView = ['services', 'materials', 'costSheet', 'reports', 'history', 'config'].includes(view);
     const syncing = syncStatus === 'syncing';
     const hasPending = Number(pendingCount) > 0;
     const syncTitle = hasPending

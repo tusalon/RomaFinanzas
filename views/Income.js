@@ -1,4 +1,4 @@
-function Income() {
+function Income({ onNavigate }) {
     const { state, actions } = useFinanceApp();
     const activeServices = state.services.filter((service) => service.active);
     const activeServiceSignature = activeServices.map((service) => String(service.id)).join('|');
@@ -237,6 +237,14 @@ function Income() {
                     {editingId ? 'Actualizar cobro' : 'Guardar cobro'}
                 </button>
             </form>
+
+            {onNavigate && (
+                <button type="button" onClick={() => onNavigate('history')} className="simple-link-button mt-6">
+                    <div className="icon-coins text-green-700"></div>
+                    <span><strong>Ver todos mis cobros</strong><small>Los de tu agenda y los que anotaste, mes por mes</small></span>
+                    <div className="icon-chevron-right text-gray-300 ml-auto"></div>
+                </button>
+            )}
 
             {manualIncomeEntries.length > 0 && (
                 <div className="card p-4 mt-6">

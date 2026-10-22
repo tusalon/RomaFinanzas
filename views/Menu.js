@@ -84,6 +84,11 @@ function Menu({ onNavigate }) {
             <details className="simple-details mt-5">
                 <summary>Ver otras opciones</summary>
                 <div className="space-y-2 pt-3">
+                    <button type="button" onClick={() => onNavigate('history')} className="simple-link-button">
+                        <div className="icon-coins text-green-700"></div>
+                        <span><strong>Historial de cobros</strong><small>Todos tus cobros, mes por mes</small></span>
+                        <div className="icon-chevron-right text-gray-300 ml-auto"></div>
+                    </button>
                     <button type="button" onClick={() => onNavigate('reports')} className="simple-link-button">
                         <div className="icon-chart-no-axes-combined text-green-700"></div>
                         <span><strong>Cómo va tu negocio</strong><small>Semana, mes y servicios</small></span>

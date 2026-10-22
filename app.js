@@ -112,7 +112,8 @@ function App() {
     switch (currentView) {
       case 'login': return <Login onLogin={handleLogin} checkingSession={checkingSession} />;
       case 'dashboard': return <Dashboard onNavigate={navigate} />;
-      case 'income': return <Income />;
+      case 'income': return <Income onNavigate={navigate} />;
+      case 'history': return <CobrosHistory onNavigate={navigate} />;
       case 'expenses': return <Expenses />;
       case 'menu': return <Menu onNavigate={navigate} />;
       case 'wizard': return <Wizard onNavigate={navigate} />;
