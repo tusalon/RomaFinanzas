@@ -116,6 +116,14 @@ function Income({ onNavigate }) {
         window.scrollTo(0, 0);
     };
 
+    // Viene del Historial de cobros con "Editar": abre ese cobro ya cargado en el formulario.
+    React.useEffect(() => {
+        const id = window.romaCobroAEditar;
+        window.romaCobroAEditar = null;
+        const entry = id && (state.incomeEntries || []).find((item) => String(item.id) === String(id));
+        if (entry) editIncome(entry);
+    }, []);
+
     const deleteIncome = async (entry) => {
         const label = entry.client || 'este cobro';
         const confirmed = window.confirm(`¿Eliminar el cobro de "${label}"?`);

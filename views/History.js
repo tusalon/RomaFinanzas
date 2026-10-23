@@ -1,5 +1,5 @@
 function CobrosHistory({ onNavigate }) {
-    const { state } = useFinanceApp();
+    const { state, actions } = useFinanceApp();
     const mainCurrency = state.config.mainCurrency || 'CUP';
     const [month, setMonth] = React.useState('todo');
     const [origin, setOrigin] = React.useState('todos');
@@ -34,6 +34,19 @@ function CobrosHistory({ onNavigate }) {
         link.download = `roma-finanzas-cobros-${month}.csv`;
         link.click();
         URL.revokeObjectURL(url);
+    };
+
+    // Solo los anotados a mano se tocan aqui. Los de la agenda salen del cobro de la cita en RservasRoma:
+    // si se borraran aqui, volverian a aparecer al recargar.
+    const editRow = (row) => {
+        window.romaCobroAEditar = row.id;
+        onNavigate('income');
+    };
+
+    const deleteRow = async (row) => {
+        const label = row.client || 'este cobro';
+        if (!window.confirm(`¿Eliminar el cobro de "${label}" del ${dayLabel(row.date)}? No se puede deshacer.`)) return;
+        await actions.deleteIncome(row.id);
     };
 
     const origins = [
@@ -126,6 +139,14 @@ function CobrosHistory({ onNavigate }) {
                                             {row.tipAmount > 0 && <p className="text-xs font-bold text-pink-600 mt-1">+ {formatMoney(row.tipAmount, row.tipCurrency)} de propina</p>}
                                         </div>
                                     </div>
+                                    {row.origin === 'manual' ? (
+                                        <div className="flex gap-2 mt-3">
+                                            <button type="button" onClick={() => editRow(row)} className="text-xs font-bold text-gray-700 bg-white border border-gray-200 px-3 py-1.5 rounded-lg">Editar</button>
+                                            <button type="button" onClick={() => deleteRow(row)} className="text-xs font-bold text-red-700 bg-red-50 px-3 py-1.5 rounded-lg">Eliminar</button>
+                                        </div>
+                                    ) : (
+                                        <p className="text-[11px] text-gray-400 mt-2">Se corrige desde la cita en RservasRoma.</p>
+                                    )}
                                 </div>
                             </React.Fragment>
                         ))}
@@ -138,10 +159,10 @@ function CobrosHistory({ onNavigate }) {
                     )}
 
                     <div className="card p-4 text-sm text-gray-600">
-                        Para corregir o borrar un cobro que anotaste a mano, ve a <strong>Anotar cobro</strong>. Los que vienen de tu agenda se corrigen desde la cita.
+                        Los cobros que anotaste a mano se editan o se eliminan aquí mismo. Los que vienen de tu agenda se corrigen desde la cita.
                         <button type="button" onClick={() => onNavigate('income')} className="simple-link-button mt-3">
                             <div className="icon-coins text-green-700"></div>
-                            <span><strong>Anotar cobro</strong><small>Editar o eliminar cobros anotados</small></span>
+                            <span><strong>Anotar cobro</strong><small>Apuntar un cobro nuevo</small></span>
                             <div className="icon-chevron-right text-gray-300 ml-auto"></div>
                         </button>
                     </div>
